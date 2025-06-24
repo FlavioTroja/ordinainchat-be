@@ -7,7 +7,7 @@ public class Product extends BaseEntity {
 
     private String name;
     private String description;
-    private double price;
+    private Double price;
 
     public String getName() {
         return name;
@@ -25,11 +25,11 @@ public class Product extends BaseEntity {
         this.description = description;
     }
 
-    public double getPrice() {
+    public Double getPrice() {
         return price;
     }
 
-    public void setPrice(double price) {
+    public void setPrice(Double price) {
         this.price = price;
     }
 

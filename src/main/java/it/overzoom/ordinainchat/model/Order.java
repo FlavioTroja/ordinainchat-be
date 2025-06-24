@@ -10,7 +10,7 @@ public class Order extends BaseEntity {
 
     private String customerId;
     private List<String> productIds;
-    private LocalDateTime orderDate;
+    private LocalDateTime orderDate = LocalDateTime.now();
 
     public String getCustomerId() {
         return customerId;
