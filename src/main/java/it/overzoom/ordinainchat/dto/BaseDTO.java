@@ -1,13 +1,15 @@
 package it.overzoom.ordinainchat.dto;
 
+import java.io.Serial;
+
 public class BaseDTO implements java.io.Serializable {
 
+    @Serial
     private static final long serialVersionUID = 1L;
 
     private String id;
     private Integer version;
 
-    // Getters e Setters
     public String getId() {
         return id;
     }

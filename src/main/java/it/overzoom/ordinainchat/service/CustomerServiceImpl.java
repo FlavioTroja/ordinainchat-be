@@ -45,7 +45,8 @@ public class CustomerServiceImpl implements CustomerService {
     public Optional<Customer> update(Customer customer) {
         return customerRepository.findById(customer.getId()).map(existing -> {
             existing.setName(customer.getName());
-            existing.setPhoneNumber(customer.getPhoneNumber());
+            existing.setPhone(customer.getPhone());
+            existing.setAddress(customer.getAddress());
             return existing;
         }).map(customerRepository::save);
     }
@@ -56,8 +57,10 @@ public class CustomerServiceImpl implements CustomerService {
         return customerRepository.findById(id).map(existing -> {
             if (customer.getName() != null)
                 existing.setName(customer.getName());
-            if (customer.getPhoneNumber() != null)
-                existing.setPhoneNumber(customer.getPhoneNumber());
+            if (customer.getPhone() != null)
+                existing.setPhone(customer.getPhone());
+            if (customer.getAddress() != null)
+                existing.setAddress(customer.getAddress());
             return existing;
         }).map(customerRepository::save);
     }

@@ -6,7 +6,8 @@ import org.springframework.data.mongodb.core.mapping.Document;
 public class Customer extends BaseEntity {
 
     private String name;
-    private String phoneNumber;
+    private String phone;
+    private String address;
 
     public String getName() {
         return name;
@@ -16,12 +17,20 @@ public class Customer extends BaseEntity {
         this.name = name;
     }
 
-    public String getPhoneNumber() {
-        return phoneNumber;
+    public String getPhone() {
+        return phone;
     }
 
-    public void setPhoneNumber(String phoneNumber) {
-        this.phoneNumber = phoneNumber;
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
     }
 
 }

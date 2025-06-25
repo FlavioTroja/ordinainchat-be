@@ -3,7 +3,8 @@ package it.overzoom.ordinainchat.dto;
 public class CustomerDTO extends BaseDTO {
 
     private String name;
-    private String phoneNumber;
+    private String phone;
+    private String address;
 
     public String getName() {
         return name;
@@ -13,11 +14,19 @@ public class CustomerDTO extends BaseDTO {
         this.name = name;
     }
 
-    public String getPhoneNumber() {
-        return phoneNumber;
+    public String getPhone() {
+        return phone;
     }
 
-    public void setPhoneNumber(String phoneNumber) {
-        this.phoneNumber = phoneNumber;
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
     }
 }
