@@ -8,6 +8,7 @@ public class Customer extends BaseEntity {
     private String name;
     private String phone;
     private String address;
+    private String userId;
 
     public String getName() {
         return name;
@@ -33,4 +34,11 @@ public class Customer extends BaseEntity {
         this.address = address;
     }
 
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
+    }
 }

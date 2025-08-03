@@ -1,7 +1,5 @@
 server:
-    port: 8181
-    servlet:
-        context-path: /api
+    port: 8080
 
 spring:
     profiles:
@@ -29,4 +27,17 @@ openapi:
     service:
         title: "TAF Development API"
         version: 1.0.0
-        url: ${OPENAPI_URL:http://localhost:8080/v3/api-docs}          
+        url: ${OPENAPI_URL:http://localhost:8080/v3/api-docs}         
+
+telegrambots:
+    enabled: true
+    webhook-bots:
+        - bot-path: ${TELEGRAM_BOT_PATH}
+          username: ${TELEGRAM_BOT_NAME}
+          token: ${TELEGRAM_BOT_TOKEN}
+          secret: ${TELEGRAM_BOT_SECRET:}
+
+telegram:
+    webhook:
+      url: ${TELEGRAM_WEBHOOK_URL}      
+      token: ${TELEGRAM_BOT_TOKEN}    

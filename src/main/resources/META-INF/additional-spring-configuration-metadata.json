@@ -1,0 +1,47 @@
+{"properties": [
+  {
+    "name": "springdoc.api-docs.path",
+    "type": "java.lang.String",
+    "description": "A description for 'springdoc.api-docs.path'"
+  },
+  {
+    "name": "springdoc.swagger-ui.path",
+    "type": "java.lang.String",
+    "description": "A description for 'springdoc.swagger-ui.path'"
+  },
+  {
+    "name": "springdoc.swagger-ui.operationsSorter",
+    "type": "java.lang.String",
+    "description": "A description for 'springdoc.swagger-ui.operationsSorter'"
+  },
+  {
+    "name": "openapi.service.title",
+    "type": "java.lang.String",
+    "description": "A description for 'openapi.service.title'"
+  },
+  {
+    "name": "openapi.service.version",
+    "type": "java.lang.String",
+    "description": "A description for 'openapi.service.version'"
+  },
+  {
+    "name": "openapi.service.url",
+    "type": "java.lang.String",
+    "description": "A description for 'openapi.service.url'"
+  },
+  {
+    "name": "telegrambots.enabled",
+    "type": "java.lang.String",
+    "description": "A description for 'telegrambots.enabled'"
+  },
+  {
+    "name": "telegram.webhook.url",
+    "type": "java.lang.String",
+    "description": "A description for 'telegram.webhook.url'"
+  },
+  {
+    "name": "telegram.webhook.token",
+    "type": "java.lang.String",
+    "description": "A description for 'telegram.webhook.token'"
+  }
+]}

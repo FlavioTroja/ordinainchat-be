@@ -5,6 +5,7 @@ public class ProductDTO extends BaseDTO {
     private String name;
     private String description;
     private double price;
+    private String userId;
 
     public String getName() {
         return name;
@@ -28,6 +29,14 @@ public class ProductDTO extends BaseDTO {
 
     public void setPrice(double price) {
         this.price = price;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
     }
 
 }

@@ -11,6 +11,7 @@ public class Order extends BaseEntity {
     private String customerId;
     private List<String> productIds;
     private LocalDateTime orderDate = LocalDateTime.now();
+    private String userId;
 
     public String getCustomerId() {
         return customerId;
@@ -36,4 +37,11 @@ public class Order extends BaseEntity {
         this.orderDate = orderDate;
     }
 
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
+    }
 }

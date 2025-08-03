@@ -8,6 +8,7 @@ public class OrderDTO extends BaseDTO {
     private String customerId;
     private List<String> productIds;
     private LocalDateTime orderDate;
+    private String userId;
 
     public String getCustomerId() {
         return customerId;
@@ -31,5 +32,13 @@ public class OrderDTO extends BaseDTO {
 
     public void setOrderDate(LocalDateTime orderDate) {
         this.orderDate = orderDate;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
     }
 }
