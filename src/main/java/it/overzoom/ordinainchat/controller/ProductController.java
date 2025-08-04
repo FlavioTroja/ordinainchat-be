@@ -21,6 +21,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import it.overzoom.ordinainchat.dto.ProductDTO;
 import it.overzoom.ordinainchat.exception.ResourceNotFoundException;
 import it.overzoom.ordinainchat.mapper.ProductMapper;
@@ -63,14 +69,29 @@ public class ProductController extends BaseSearchController<Product, ProductDTO>
     }
 
     @GetMapping("")
-    public ResponseEntity<Page<ProductDTO>> findAll(Pageable pageable) {
+    @Operation(summary = "Recupera tutti i prodotti (paginati)", description = "Restituisce una pagina di prodotti, con possibilità di filtrare e ordinare tramite parametri standard di Spring (page, size, sort).", parameters = {
+            @Parameter(name = "page", description = "Numero della pagina (0-based)", example = "0"),
+            @Parameter(name = "size", description = "Numero di elementi per pagina", example = "20"),
+            @Parameter(name = "sort", description = "Campo per ordinamento, es: 'name,asc'", example = "name,asc")
+    }, responses = {
+            @ApiResponse(responseCode = "200", description = "Pagina di prodotti", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductDTO.class)))
+    })
+    public ResponseEntity<Page<ProductDTO>> findAll(
+            @Parameter(description = "Parametri di paginazione e ordinamento") Pageable pageable) {
         log.info("REST request to get a page of Products");
         Page<Product> page = productService.findAll(pageable);
         return ResponseEntity.ok().body(page.map(productMapper::toDto));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ProductDTO> findById(@PathVariable String id) throws ResourceNotFoundException {
+    @Operation(summary = "Recupera un prodotto per ID", description = "Restituisce i dettagli di un prodotto specifico tramite il suo ID.", parameters = {
+            @Parameter(name = "id", description = "ID del prodotto", required = true, example = "664f7f9fc2c9d664b2cf2d91")
+    }, responses = {
+            @ApiResponse(responseCode = "200", description = "Prodotto trovato", content = @Content(schema = @Schema(implementation = ProductDTO.class))),
+            @ApiResponse(responseCode = "404", description = "Prodotto non trovato", content = @Content(mediaType = "application/json", examples = @ExampleObject(value = "{\"error\": \"Prodotto non trovato.\"}")))
+    })
+    public ResponseEntity<ProductDTO> findById(
+            @PathVariable String id) throws ResourceNotFoundException {
         return productService.findById(id)
                 .map(productMapper::toDto)
                 .map(ResponseEntity::ok)
@@ -78,8 +99,12 @@ public class ProductController extends BaseSearchController<Product, ProductDTO>
     }
 
     @PostMapping("/create")
-    public ResponseEntity<ProductDTO> create(@RequestBody ProductDTO productDTO)
-            throws BadRequestException, URISyntaxException {
+    @Operation(summary = "Crea un nuovo prodotto", description = "Crea un nuovo prodotto. Il campo ID non deve essere valorizzato nella richiesta.", requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, description = "Dati del prodotto da creare", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductDTO.class), examples = @ExampleObject(value = "{ \"name\": \"Pizza Margherita\", \"description\": \"Pizza classica italiana\", \"category\": \"Pizza\", \"price\": 8.50 }"))), responses = {
+            @ApiResponse(responseCode = "201", description = "Prodotto creato", content = @Content(schema = @Schema(implementation = ProductDTO.class))),
+            @ApiResponse(responseCode = "400", description = "ID fornito erroneamente per un nuovo prodotto", content = @Content(mediaType = "application/json", examples = @ExampleObject(value = "{\"error\": \"Un nuovo prodotto non può già avere un ID\"}")))
+    })
+    public ResponseEntity<ProductDTO> create(
+            @RequestBody ProductDTO productDTO) throws BadRequestException, URISyntaxException {
         log.info("REST request to save Product : {}", productDTO);
         if (productDTO.getId() != null) {
             throw new BadRequestException("Un nuovo prodotto non può già avere un ID");
@@ -91,8 +116,13 @@ public class ProductController extends BaseSearchController<Product, ProductDTO>
     }
 
     @PutMapping("")
-    public ResponseEntity<ProductDTO> update(@RequestBody ProductDTO productDTO)
-            throws BadRequestException, ResourceNotFoundException {
+    @Operation(summary = "Aggiorna un prodotto", description = "Aggiorna un prodotto esistente. L'ID deve essere presente nel payload.", requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, description = "Dati aggiornati del prodotto", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductDTO.class), examples = @ExampleObject(value = "{ \"id\": \"664f7f9fc2c9d664b2cf2d91\", \"name\": \"Pizza Diavola\", \"description\": \"Pizza piccante\", \"category\": \"Pizza\", \"price\": 9.50 }"))), responses = {
+            @ApiResponse(responseCode = "200", description = "Prodotto aggiornato", content = @Content(schema = @Schema(implementation = ProductDTO.class))),
+            @ApiResponse(responseCode = "400", description = "ID non presente o non valido", content = @Content(mediaType = "application/json", examples = @ExampleObject(value = "{\"error\": \"ID invalido.\"}"))),
+            @ApiResponse(responseCode = "404", description = "Prodotto non trovato", content = @Content(mediaType = "application/json", examples = @ExampleObject(value = "{\"error\": \"Prodotto non trovato.\"}")))
+    })
+    public ResponseEntity<ProductDTO> update(
+            @RequestBody ProductDTO productDTO) throws BadRequestException, ResourceNotFoundException {
         log.info("REST request to update Product: {}", productDTO);
         if (productDTO.getId() == null) {
             throw new BadRequestException("ID invalido.");
@@ -109,9 +139,15 @@ public class ProductController extends BaseSearchController<Product, ProductDTO>
     }
 
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
-    public ResponseEntity<ProductDTO> partialUpdate(@PathVariable String id,
-            @RequestBody ProductDTO productDTO)
-            throws BadRequestException, ResourceNotFoundException {
+    @Operation(summary = "Aggiorna parzialmente un prodotto", description = "Aggiorna solo i campi specificati di un prodotto esistente.", parameters = {
+            @Parameter(name = "id", description = "ID del prodotto da aggiornare", required = true, example = "664f7f9fc2c9d664b2cf2d91")
+    }, requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, description = "Campi da aggiornare (solo quelli inclusi saranno modificati)", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductDTO.class), examples = @ExampleObject(value = "{ \"price\": 10.00 }"))), responses = {
+            @ApiResponse(responseCode = "200", description = "Prodotto aggiornato", content = @Content(schema = @Schema(implementation = ProductDTO.class))),
+            @ApiResponse(responseCode = "404", description = "Prodotto non trovato", content = @Content(mediaType = "application/json", examples = @ExampleObject(value = "{\"error\": \"Prodotto non trovato.\"}")))
+    })
+    public ResponseEntity<ProductDTO> partialUpdate(
+            @PathVariable String id,
+            @RequestBody ProductDTO productDTO) throws BadRequestException, ResourceNotFoundException {
         log.info("REST request to partial update Product: {}", productDTO);
         if (id == null) {
             throw new BadRequestException("ID invalido.");
@@ -127,7 +163,14 @@ public class ProductController extends BaseSearchController<Product, ProductDTO>
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteById(@PathVariable String id) throws ResourceNotFoundException {
+    @Operation(summary = "Cancella un prodotto per ID", description = "Elimina un prodotto tramite il suo ID.", parameters = {
+            @Parameter(name = "id", description = "ID del prodotto da eliminare", required = true, example = "664f7f9fc2c9d664b2cf2d91")
+    }, responses = {
+            @ApiResponse(responseCode = "204", description = "Prodotto eliminato con successo"),
+            @ApiResponse(responseCode = "404", description = "Prodotto non trovato", content = @Content(mediaType = "application/json", examples = @ExampleObject(value = "{\"error\": \"Prodotto non trovato.\"}")))
+    })
+    public ResponseEntity<Void> deleteById(
+            @PathVariable String id) throws ResourceNotFoundException {
         log.info("REST request to delete Product with ID: {}", id);
         if (!productService.existsById(id)) {
             throw new ResourceNotFoundException("Prodotto non trovato.");

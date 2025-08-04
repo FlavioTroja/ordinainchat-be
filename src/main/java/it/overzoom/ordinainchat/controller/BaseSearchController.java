@@ -19,6 +19,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+
 public abstract class BaseSearchController<T, DTO> {
 
     @Autowired
@@ -35,6 +41,37 @@ public abstract class BaseSearchController<T, DTO> {
     }
 
     @PostMapping("/search")
+    @Operation(summary = "Ricerca avanzata con filtri, full-text, paginazione e ordinamento", description = """
+            Esegue una ricerca avanzata sugli oggetti.<br>
+            Il body accetta:
+            <ul>
+                <li><b>page</b>: Numero pagina (0-based, default 0)</li>
+                <li><b>limit</b>: Numero risultati per pagina (default 10)</li>
+                <li><b>search</b>: Testo per la ricerca full-text (facoltativo, esegue OR sui campi indicati)</li>
+                <li><b>filters</b>: Mappa chiave-valore per filtrare per campo (AND tra i filtri)</li>
+                <li><b>sort</b>: Mappa campo/direzione (es. <code>{ \"name\": \"asc\", \"price\": \"desc\" }</code>)</li>
+            </ul>
+            """, requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, description = "Parametri di ricerca, filtri, paginazione e ordinamento", content = @Content(mediaType = "application/json", examples = @ExampleObject(name = "Esempio di ricerca prodotto", value = """
+            {
+              "page": 0,
+              "limit": 20,
+              "search": "pizza",
+              "filters": {
+                "category": "Pizza",
+                "userId": "64efab20c4d65b2e82b7d09f"
+              },
+              "sort": {
+                "price": "asc",
+                "name": "desc"
+              }
+            }
+            """))), responses = {
+            @ApiResponse(responseCode = "200", description = "Risultati della ricerca (pagina di oggetti DTO)", content = @Content(mediaType = "application/json", schema = @Schema(description = "Pagina di risultati della ricerca", implementation = org.springframework.data.domain.PageImpl.class
+            // NOTA: Swagger a volte non mostra bene il generico Page<DTO>,
+            // nei controller concreti puoi mettere @Schema(implementation =
+            // ProductDTO.class)
+            )))
+    })
     public ResponseEntity<Page<DTO>> search(@RequestBody Map<String, Object> request) {
         int page = (int) request.getOrDefault("page", 0);
         int limit = (int) request.getOrDefault("limit", 10);
