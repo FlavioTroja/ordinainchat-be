@@ -11,9 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.telegram.telegrambots.meta.api.objects.Update;
 
-import it.overzoom.ordinainchat.model.Customer;
-import it.overzoom.ordinainchat.model.User;
 import it.overzoom.ordinainchat.repository.CustomerRepository;
+import it.overzoom.ordinainchat.repository.ProductRepository;
 import it.overzoom.ordinainchat.repository.UserRepository;
 
 @Service
@@ -21,40 +20,23 @@ public class TelegramServiceImpl implements TelegramService {
 
     private final UserRepository userRepository;
     private final CustomerRepository customerRepository;
+    private final ProductRepository productRepository;
     private final String botToken;
     private final RestTemplate restTemplate = new RestTemplate();
 
     public TelegramServiceImpl(UserRepository userRepository,
             CustomerRepository customerRepository,
+            ProductRepository productRepository,
             @Value("${TELEGRAM_BOT_TOKEN}") String botToken) {
         this.userRepository = userRepository;
         this.customerRepository = customerRepository;
+        this.productRepository = productRepository;
         this.botToken = botToken;
     }
 
     @Override
     public void handleUpdate(Update update) {
-        if (update.hasMessage() && update.getMessage().hasText()) {
-            String telegramUserId = String.valueOf(update.getMessage().getFrom().getId());
-            User user = userRepository.findByTelegramUserId(telegramUserId).orElse(null);
-            String chatId = update.getMessage().getChatId().toString();
 
-            String messaggio;
-            if (user == null) {
-                user = new User();
-                user.setTelegramUserId(telegramUserId);
-                userRepository.save(user);
-                messaggio = "Benvenuto! Come ti chiami?";
-            } else {
-                Customer customer = customerRepository.findByUserId(user.getId()).orElse(null);
-                if (customer == null) {
-                    messaggio = "Come ti chiami? (Per completare la registrazione)";
-                } else {
-                    messaggio = "Ciao " + customer.getName() + "! Come posso aiutarti oggi?";
-                }
-            }
-            sendMessageToTelegram(chatId, messaggio);
-        }
     }
 
     private void sendMessageToTelegram(String chatId, String messaggio) {

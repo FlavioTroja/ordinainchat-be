@@ -28,6 +28,9 @@ dependencies {
 	implementation 'org.telegram:telegrambots-springboot-webhook-starter:9.0.0'
 	implementation 'org.telegram:telegrambots-meta:9.0.0'
 
+	// JSON
+	implementation 'org.json:json:20250517'
+
 	// MapStruct
 	implementation 'org.mapstruct:mapstruct:1.5.5.Final'
 	annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
@@ -35,6 +38,7 @@ dependencies {
 	// Solo in dev
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.withType(JavaCompile).configureEach {
