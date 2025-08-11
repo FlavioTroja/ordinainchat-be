@@ -1,9 +1,9 @@
+// src/main/java/it/overzoom/ordinainchat/controller/OrderController.java
 package it.overzoom.ordinainchat.controller;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.List;
-import java.util.function.Function;
+import java.util.UUID;
 
 import org.apache.coyote.BadRequestException;
 import org.slf4j.Logger;
@@ -29,48 +29,28 @@ import it.overzoom.ordinainchat.service.OrderService;
 
 @RestController
 @RequestMapping("/api/orders")
-public class OrderController extends BaseSearchController<Order, OrderDTO> {
+public class OrderController {
 
     private static final Logger log = LoggerFactory.getLogger(OrderController.class);
     private final OrderService orderService;
     private final OrderMapper orderMapper;
 
-    public OrderController(
-            OrderService orderService,
+    public OrderController(OrderService orderService,
             OrderMapper orderMapper) {
         this.orderService = orderService;
         this.orderMapper = orderMapper;
     }
 
-    @Override
-    protected String getCollectionName() {
-        return "order";
-    }
-
-    @Override
-    protected Class<Order> getEntityClass() {
-        return Order.class;
-    }
-
-    @Override
-    protected Function<Order, OrderDTO> toDtoMapper() {
-        return orderMapper::toDto;
-    }
-
-    @Override
-    protected List<String> getSearchableFields() {
-        return List.of("customerId", "productIds", "orderDate");
-    }
-
     @GetMapping("")
     public ResponseEntity<Page<OrderDTO>> findAll(Pageable pageable) {
-        log.info("REST request to get a page of Orders");
+        log.debug("REST request to get all Orders");
         Page<Order> page = orderService.findAll(pageable);
-        return ResponseEntity.ok().body(page.map(orderMapper::toDto));
+        return ResponseEntity.ok(page.map(orderMapper::toDto));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderDTO> findById(@PathVariable String id) throws ResourceNotFoundException {
+    public ResponseEntity<OrderDTO> findById(@PathVariable UUID id) throws ResourceNotFoundException {
+        log.debug("REST request to get Order : {}", id);
         return orderService.findById(id)
                 .map(orderMapper::toDto)
                 .map(ResponseEntity::ok)
@@ -80,10 +60,9 @@ public class OrderController extends BaseSearchController<Order, OrderDTO> {
     @PostMapping("/create")
     public ResponseEntity<OrderDTO> create(@RequestBody OrderDTO orderDTO)
             throws BadRequestException, URISyntaxException {
-        log.info("REST request to save Order : {}", orderDTO);
-        if (orderDTO.getId() != null) {
+        log.debug("REST request to create Order : {}", orderDTO);
+        if (orderDTO.getId() != null)
             throw new BadRequestException("Un nuovo ordine non può già avere un ID");
-        }
         Order order = orderMapper.toEntity(orderDTO);
         order = orderService.create(order);
         return ResponseEntity.created(new URI("/api/orders/" + order.getId()))
@@ -93,45 +72,35 @@ public class OrderController extends BaseSearchController<Order, OrderDTO> {
     @PutMapping("")
     public ResponseEntity<OrderDTO> update(@RequestBody OrderDTO orderDTO)
             throws BadRequestException, ResourceNotFoundException {
-        log.info("REST request to update Order: {}", orderDTO);
-        if (orderDTO.getId() == null) {
+        log.debug("REST request to update Order : {}", orderDTO);
+        if (orderDTO.getId() == null)
             throw new BadRequestException("ID invalido.");
-        }
-        if (!orderService.existsById(orderDTO.getId())) {
+        if (!orderService.existsById(orderDTO.getId()))
             throw new ResourceNotFoundException("Ordine non trovato.");
-        }
-        Order order = orderMapper.toEntity(orderDTO);
-        Order updated = orderService.update(order)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Ordine non trovato con questo ID :: " + order.getId()));
-
-        return ResponseEntity.ok().body(orderMapper.toDto(updated));
+        Order updated = orderService.update(orderMapper.toEntity(orderDTO))
+                .orElseThrow(
+                        () -> new ResourceNotFoundException("Ordine non trovato con questo ID :: " + orderDTO.getId()));
+        return ResponseEntity.ok(orderMapper.toDto(updated));
     }
 
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
-    public ResponseEntity<OrderDTO> partialUpdate(@PathVariable String id,
+    public ResponseEntity<OrderDTO> partialUpdate(@PathVariable UUID id,
             @RequestBody OrderDTO orderDTO)
-            throws BadRequestException, ResourceNotFoundException {
-        log.info("REST request to partial update Order: {}", orderDTO);
-        if (id == null) {
-            throw new BadRequestException("ID invalido.");
-        }
-        if (!orderService.existsById(id)) {
+            throws ResourceNotFoundException {
+        log.debug("REST request to partially update Order : {}", orderDTO);
+        if (!orderService.existsById(id))
             throw new ResourceNotFoundException("Ordine non trovato.");
-        }
-        Order order = orderMapper.toEntity(orderDTO);
-        Order updated = orderService.partialUpdate(id, order)
+        Order partial = orderMapper.toEntity(orderDTO);
+        Order updated = orderService.partialUpdate(id, partial)
                 .orElseThrow(() -> new ResourceNotFoundException("Ordine non trovato con questo ID :: " + id));
-
-        return ResponseEntity.ok().body(orderMapper.toDto(updated));
+        return ResponseEntity.ok(orderMapper.toDto(updated));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteById(@PathVariable String id) throws ResourceNotFoundException {
-        log.info("REST request to delete Order with ID: {}", id);
-        if (!orderService.existsById(id)) {
+    public ResponseEntity<Void> deleteById(@PathVariable UUID id) throws ResourceNotFoundException {
+        log.debug("REST request to delete Order : {}", id);
+        if (!orderService.existsById(id))
             throw new ResourceNotFoundException("Ordine non trovato.");
-        }
         orderService.deleteById(id);
         return ResponseEntity.noContent().build();
     }

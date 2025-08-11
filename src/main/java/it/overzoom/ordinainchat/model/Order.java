@@ -1,47 +1,75 @@
 package it.overzoom.ordinainchat.model;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.data.mongodb.core.mapping.Document;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
-@Document(collection = "orders")
+@Entity
+@Table(name = "orders", indexes = {
+        @Index(name = "ix_orders_order_date", columnList = "order_date"),
+        @Index(name = "ix_orders_customer_id", columnList = "customer_id"),
+        @Index(name = "ix_orders_user_id", columnList = "user_id")
+})
 public class Order extends BaseEntity {
 
-    private String customerId;
-    private List<String> productIds;
-    private LocalDateTime orderDate = LocalDateTime.now();
-    private String userId;
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "customer_id", foreignKey = @ForeignKey(name = "fk_orders_customer"))
+    private Customer customer;
 
-    public String getCustomerId() {
-        return customerId;
+    @Column(name = "order_date", nullable = false)
+    private OffsetDateTime orderDate = OffsetDateTime.now();
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", foreignKey = @ForeignKey(name = "fk_orders_user"))
+    private User user;
+
+    @ManyToMany
+    @JoinTable(name = "order_products", joinColumns = @JoinColumn(name = "order_id", foreignKey = @ForeignKey(name = "fk_order_products_order")), inverseJoinColumns = @JoinColumn(name = "product_id", foreignKey = @ForeignKey(name = "fk_order_products_product")), uniqueConstraints = @UniqueConstraint(name = "uk_order_products_order_product", columnNames = {
+            "order_id", "product_id" }))
+    private List<Product> products = new ArrayList<>();
+
+    // getters/setters
+    public Customer getCustomer() {
+        return customer;
     }
 
-    public void setCustomerId(String customerId) {
-        this.customerId = customerId;
+    public void setCustomer(Customer customer) {
+        this.customer = customer;
     }
 
-    public List<String> getProductIds() {
-        return productIds;
-    }
-
-    public void setProductIds(List<String> productIds) {
-        this.productIds = productIds;
-    }
-
-    public LocalDateTime getOrderDate() {
+    public OffsetDateTime getOrderDate() {
         return orderDate;
     }
 
-    public void setOrderDate(LocalDateTime orderDate) {
+    public void setOrderDate(OffsetDateTime orderDate) {
         this.orderDate = orderDate;
     }
 
-    public String getUserId() {
-        return userId;
+    public User getUser() {
+        return user;
     }
 
-    public void setUserId(String userId) {
-        this.userId = userId;
+    public void setUser(User user) {
+        this.user = user;
+    }
+
+    public List<Product> getProducts() {
+        return products;
+    }
+
+    public void setProducts(List<Product> products) {
+        this.products = products;
     }
 }

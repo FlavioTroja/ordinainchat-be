@@ -1,14 +1,13 @@
 package it.overzoom.ordinainchat.repository;
 
 import java.util.Optional;
+import java.util.UUID;
 
-import org.springframework.data.mongodb.repository.MongoRepository;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.JpaRepository;
 
 import it.overzoom.ordinainchat.model.Customer;
 
-@Repository
-public interface CustomerRepository extends MongoRepository<Customer, String> {
+public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
-    Optional<Customer> findByUserId(String userId);
+    Optional<Customer> findByUserId(UUID userId);
 }

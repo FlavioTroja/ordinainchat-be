@@ -1,36 +1,36 @@
 package it.overzoom.ordinainchat.dto;
 
 import java.io.Serial;
+import java.io.Serializable;
+import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "DTO base comune a tutte le entità dell'applicazione. Include id e versione.")
-public class BaseDTO implements java.io.Serializable {
+@Schema(description = "DTO base comune a tutte le entità (id, versione).")
+public class BaseDTO implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "ID univoco dell'entità (MongoDB ObjectId o UUID)", example = "64efab20c4d65b2e82b7d09f")
-    private String id;
+    @Schema(description = "ID univoco (UUID)", example = "3a3a1f0e-2f0a-4a62-9d33-1c1b9d3a7f7b")
+    private UUID id;
 
-    @Schema(description = "Numero di versione dell'entità, utile per il controllo ottimistico di concorrenza", example = "3")
-    private Integer version;
+    @Schema(description = "Versione per optimistic locking", example = "3")
+    private Long version;
 
-    // Getter e Setter
-
-    public String getId() {
+    public UUID getId() {
         return id;
     }
 
-    public void setId(String id) {
+    public void setId(UUID id) {
         this.id = id;
     }
 
-    public Integer getVersion() {
+    public Long getVersion() {
         return version;
     }
 
-    public void setVersion(Integer version) {
+    public void setVersion(Long version) {
         this.version = version;
     }
 }

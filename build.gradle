@@ -1,55 +1,72 @@
 plugins {
-	id 'java'
-	id 'org.springframework.boot' version '3.5.4'
-	id 'io.spring.dependency-management' version '1.1.7'
+    id 'java'
+    id 'org.springframework.boot' version '3.5.4'
+    id 'io.spring.dependency-management' version '1.1.7'
+    // opzionale se vuoi build native:
+    // id 'org.graalvm.buildtools.native' version '0.10.3'
 }
 
 group = 'it.overzoom'
 version = '0.0.1-SNAPSHOT'
 
 java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(21)
-	}
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
 
 repositories {
-	mavenCentral()
-}    
+    mavenCentral()
+}
 
 dependencies {
-	implementation 'org.springframework.boot:spring-boot-autoconfigure'
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
-	implementation 'org.springframework.boot:spring-boot-starter-validation'
-	implementation 'org.springframework.boot:spring-boot-starter-security'
+    // ── Spring Boot ─────────────────────────────────────────────────────
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
 
-	// OpenAPI/Swagger
+    // 💡 JPA + PostgreSQL (al posto di Mongo)
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly   'org.postgresql:postgresql'
+
+    // Migrazioni DB
+    implementation 'org.flywaydb:flyway-core'
+    // Se usi Postgres con Flyway in container Alpine, aggiungi il supporto per driver specifici se necessario:
+    implementation 'org.flywaydb:flyway-database-postgresql'
+
+    // (Opzionale ma utile) tipi Hibernate per JSONB, array, ecc.
+    // implementation 'com.vladmihalcea:hibernate-types-60:2.21.1'
+
+    // ── OpenAPI/Swagger ─────────────────────────────────────────────────
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.9'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'
 
-    // Telegram Bot API
-	implementation 'org.telegram:telegrambots-springboot-webhook-starter:9.0.0'
-	implementation 'org.telegram:telegrambots-meta:9.0.0'
+    // ── Telegram Bot API ────────────────────────────────────────────────
+    implementation 'org.telegram:telegrambots-springboot-webhook-starter:9.0.0'
+    implementation 'org.telegram:telegrambots-meta:9.0.0'
 
-	// JSON
-	implementation 'org.json:json:20250517'
+    // ── JSON util ───────────────────────────────────────────────────────
+    implementation 'org.json:json:20250517'
 
-	// MapStruct
-	implementation 'org.mapstruct:mapstruct:1.5.5.Final'
-	annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
+    // ── MapStruct ───────────────────────────────────────────────────────
+    implementation 'org.mapstruct:mapstruct:1.5.5.Final'
+    annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
 
-	// Solo in dev
-	developmentOnly 'org.springframework.boot:spring-boot-devtools'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    // ── Dev & Test ──────────────────────────────────────────────────────
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // (Opzionale) Testcontainers per test di integrazione con Postgres
+    // testImplementation 'org.testcontainers:junit-jupiter'
+    // testImplementation 'org.testcontainers:postgresql'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.annotationProcessorPath = configurations.annotationProcessor
-	options.compilerArgs << "-parameters"
+    options.compilerArgs << "-parameters"
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+    useJUnitPlatform()
 }

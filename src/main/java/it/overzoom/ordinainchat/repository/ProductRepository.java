@@ -1,11 +1,10 @@
 package it.overzoom.ordinainchat.repository;
 
-import org.springframework.data.mongodb.repository.MongoRepository;
-import org.springframework.stereotype.Repository;
+import java.util.UUID;
+
+import org.springframework.data.jpa.repository.JpaRepository;
 
 import it.overzoom.ordinainchat.model.Product;
 
-@Repository
-public interface ProductRepository extends MongoRepository<Product, String> {
-
+public interface ProductRepository extends JpaRepository<Product, UUID>, ProductSearchRepository {
 }

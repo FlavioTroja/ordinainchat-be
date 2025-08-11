@@ -1,56 +1,70 @@
 package it.overzoom.ordinainchat.model;
 
-import java.time.Instant;
+import java.io.Serializable;
+import java.time.OffsetDateTime;
+import java.util.Objects;
+import java.util.UUID;
 
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.annotation.Version;
+import jakarta.persistence.Column;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 
-public class BaseEntity {
+@MappedSuperclass
+public abstract class BaseEntity implements Serializable {
 
     @Id
-    private String id;
+    @GeneratedValue
+    @Column(columnDefinition = "uuid")
+    private UUID id;
 
-    @Version
-    private Integer version;
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
 
-    @CreatedDate
-    private Instant created;
+    @Column(name = "updated_at", nullable = false)
+    private OffsetDateTime updatedAt;
 
-    @LastModifiedDate
-    private Instant updated;
+    @PrePersist
+    protected void onCreate() {
+        var now = OffsetDateTime.now();
+        createdAt = now;
+        updatedAt = now;
+    }
 
-    public String getId() {
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = OffsetDateTime.now();
+    }
+
+    public UUID getId() {
         return id;
     }
 
-    public void setId(String id) {
+    public void setId(UUID id) {
         this.id = id;
     }
 
-    public Integer getVersion() {
-        return version;
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
     }
 
-    public void setVersion(Integer version) {
-        this.version = version;
+    public OffsetDateTime getUpdatedAt() {
+        return updatedAt;
     }
 
-    public Instant getCreated() {
-        return created;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o)
+            return true;
+        if (!(o instanceof BaseEntity that))
+            return false;
+        return id != null && id.equals(that.id);
     }
 
-    public void setCreated(Instant created) {
-        this.created = created;
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(id);
     }
-
-    public Instant getUpdated() {
-        return updated;
-    }
-
-    public void setUpdated(Instant updated) {
-        this.updated = updated;
-    }
-
 }

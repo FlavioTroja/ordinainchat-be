@@ -1,6 +1,7 @@
 package it.overzoom.ordinainchat.service;
 
 import java.util.Optional;
+import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -11,15 +12,15 @@ public interface ProductService {
 
     Page<Product> findAll(Pageable pageable);
 
-    Optional<Product> findById(String id);
+    Optional<Product> findById(UUID id);
 
-    boolean existsById(String id);
+    boolean existsById(UUID id);
 
     Product create(Product product);
 
     Optional<Product> update(Product product);
 
-    Optional<Product> partialUpdate(String id, Product product);
+    Optional<Product> partialUpdate(UUID id, Product product);
 
-    void deleteById(String id);
+    boolean deleteById(UUID id);
 }

@@ -1,23 +1,24 @@
 package it.overzoom.ordinainchat.dto;
 
+import java.math.BigDecimal;
+import java.util.UUID;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "DTO che rappresenta un prodotto. Contiene le informazioni principali di un prodotto gestito dall'applicazione.")
+@Schema(description = "Prodotto con nome, descrizione e prezzo.")
 public class ProductDTO extends BaseDTO {
 
-    @Schema(description = "Nome del prodotto", example = "Pizza Margherita", required = true)
+    @Schema(description = "Nome prodotto", example = "Orata fresca", required = true)
     private String name;
 
-    @Schema(description = "Descrizione del prodotto", example = "Pizza classica italiana con pomodoro, mozzarella e basilico")
+    @Schema(description = "Descrizione", example = "Pescato del giorno, provenienza Tirreno")
     private String description;
 
-    @Schema(description = "Prezzo del prodotto", example = "8.5", required = true)
-    private double price;
+    @Schema(description = "Prezzo in EUR", example = "14.90", required = true)
+    private BigDecimal price;
 
-    @Schema(description = "ID dell'utente proprietario del prodotto", example = "64efab20c4d65b2e82b7d09f")
-    private String userId;
-
-    // Getters e Setters
+    @Schema(description = "ID utente proprietario", example = "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d")
+    private UUID userId;
 
     public String getName() {
         return name;
@@ -35,19 +36,19 @@ public class ProductDTO extends BaseDTO {
         this.description = description;
     }
 
-    public double getPrice() {
+    public BigDecimal getPrice() {
         return price;
     }
 
-    public void setPrice(double price) {
+    public void setPrice(BigDecimal price) {
         this.price = price;
     }
 
-    public String getUserId() {
+    public UUID getUserId() {
         return userId;
     }
 
-    public void setUserId(String userId) {
+    public void setUserId(UUID userId) {
         this.userId = userId;
     }
 }

@@ -1,9 +1,9 @@
+// src/main/java/it/overzoom/ordinainchat/controller/CustomerController.java
 package it.overzoom.ordinainchat.controller;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.List;
-import java.util.function.Function;
+import java.util.UUID;
 
 import org.apache.coyote.BadRequestException;
 import org.slf4j.Logger;
@@ -29,48 +29,28 @@ import it.overzoom.ordinainchat.service.CustomerService;
 
 @RestController
 @RequestMapping("/api/customers")
-public class CustomerController extends BaseSearchController<Customer, CustomerDTO> {
+public class CustomerController {
 
     private static final Logger log = LoggerFactory.getLogger(CustomerController.class);
     private final CustomerService customerService;
     private final CustomerMapper customerMapper;
 
-    public CustomerController(
-            CustomerService customerService,
+    public CustomerController(CustomerService customerService,
             CustomerMapper customerMapper) {
         this.customerService = customerService;
         this.customerMapper = customerMapper;
     }
 
-    @Override
-    protected String getCollectionName() {
-        return "customer";
-    }
-
-    @Override
-    protected Class<Customer> getEntityClass() {
-        return Customer.class;
-    }
-
-    @Override
-    protected Function<Customer, CustomerDTO> toDtoMapper() {
-        return customerMapper::toDto;
-    }
-
-    @Override
-    protected List<String> getSearchableFields() {
-        return List.of("name", "phone", "address");
-    }
-
     @GetMapping("")
     public ResponseEntity<Page<CustomerDTO>> findAll(Pageable pageable) {
-        log.info("REST request to get a page of Customers");
+        log.debug("REST request to get all Customers");
         Page<Customer> page = customerService.findAll(pageable);
-        return ResponseEntity.ok().body(page.map(customerMapper::toDto));
+        return ResponseEntity.ok(page.map(customerMapper::toDto));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<CustomerDTO> findById(@PathVariable String id) throws ResourceNotFoundException {
+    public ResponseEntity<CustomerDTO> findById(@PathVariable UUID id) throws ResourceNotFoundException {
+        log.debug("REST request to get Customer : {}", id);
         return customerService.findById(id)
                 .map(customerMapper::toDto)
                 .map(ResponseEntity::ok)
@@ -80,10 +60,9 @@ public class CustomerController extends BaseSearchController<Customer, CustomerD
     @PostMapping("/create")
     public ResponseEntity<CustomerDTO> create(@RequestBody CustomerDTO customerDTO)
             throws BadRequestException, URISyntaxException {
-        log.info("REST request to save Customer : {}", customerDTO);
-        if (customerDTO.getId() != null) {
+        log.debug("REST request to create Customer : {}", customerDTO);
+        if (customerDTO.getId() != null)
             throw new BadRequestException("Un nuovo cliente non può già avere un ID");
-        }
         Customer customer = customerMapper.toEntity(customerDTO);
         customer = customerService.create(customer);
         return ResponseEntity.created(new URI("/api/customers/" + customer.getId()))
@@ -93,45 +72,35 @@ public class CustomerController extends BaseSearchController<Customer, CustomerD
     @PutMapping("")
     public ResponseEntity<CustomerDTO> update(@RequestBody CustomerDTO customerDTO)
             throws BadRequestException, ResourceNotFoundException {
-        log.info("REST request to update Customer: {}", customerDTO);
-        if (customerDTO.getId() == null) {
+        log.debug("REST request to update Customer : {}", customerDTO);
+        if (customerDTO.getId() == null)
             throw new BadRequestException("ID invalido.");
-        }
-        if (!customerService.existsById(customerDTO.getId())) {
+        if (!customerService.existsById(customerDTO.getId()))
             throw new ResourceNotFoundException("Cliente non trovato.");
-        }
-        Customer customer = customerMapper.toEntity(customerDTO);
-        Customer updated = customerService.update(customer)
+        Customer updated = customerService.update(customerMapper.toEntity(customerDTO))
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Cliente non trovato con questo ID :: " + customer.getId()));
-
-        return ResponseEntity.ok().body(customerMapper.toDto(updated));
+                        "Cliente non trovato con questo ID :: " + customerDTO.getId()));
+        return ResponseEntity.ok(customerMapper.toDto(updated));
     }
 
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
-    public ResponseEntity<CustomerDTO> partialUpdate(@PathVariable String id,
+    public ResponseEntity<CustomerDTO> partialUpdate(@PathVariable UUID id,
             @RequestBody CustomerDTO customerDTO)
-            throws BadRequestException, ResourceNotFoundException {
-        log.info("REST request to partial update Customer: {}", customerDTO);
-        if (id == null) {
-            throw new BadRequestException("ID invalido.");
-        }
-        if (!customerService.existsById(id)) {
+            throws ResourceNotFoundException {
+        log.debug("REST request to partially update Customer : {}", customerDTO);
+        if (!customerService.existsById(id))
             throw new ResourceNotFoundException("Cliente non trovato.");
-        }
-        Customer customer = customerMapper.toEntity(customerDTO);
-        Customer updated = customerService.partialUpdate(id, customer)
+        Customer partial = customerMapper.toEntity(customerDTO);
+        Customer updated = customerService.partialUpdate(id, partial)
                 .orElseThrow(() -> new ResourceNotFoundException("Cliente non trovato con questo ID :: " + id));
-
-        return ResponseEntity.ok().body(customerMapper.toDto(updated));
+        return ResponseEntity.ok(customerMapper.toDto(updated));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteById(@PathVariable String id) throws ResourceNotFoundException {
-        log.info("REST request to delete Customer with ID: {}", id);
-        if (!customerService.existsById(id)) {
+    public ResponseEntity<Void> deleteById(@PathVariable UUID id) throws ResourceNotFoundException {
+        log.debug("REST request to delete Customer : {}", id);
+        if (!customerService.existsById(id))
             throw new ResourceNotFoundException("Cliente non trovato.");
-        }
         customerService.deleteById(id);
         return ResponseEntity.noContent().build();
     }
