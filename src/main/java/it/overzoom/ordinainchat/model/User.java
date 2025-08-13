@@ -20,7 +20,7 @@ public class User extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "current_step", length = 50)
-    private StepType currentStep;
+    private StepType currentStep = StepType.START;
 
     // getters/setters
     public String getTelegramUserId() {

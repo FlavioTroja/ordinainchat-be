@@ -1,7 +1,8 @@
-// it/overzoom/ordinainchat/repository/ProductSearchRepositoryImpl.java
+// src/main/java/it/overzoom/ordinainchat/repository/ProductSearchRepositoryImpl.java
 package it.overzoom.ordinainchat.repository;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -18,6 +19,7 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 
@@ -31,14 +33,12 @@ class ProductSearchRepositoryImpl implements ProductSearchRepository {
     public Page<Product> search(ProductSearchCriteria c, Pageable pageable) {
         if (c == null)
             c = new ProductSearchCriteria();
-
         CriteriaBuilder cb = em.getCriteriaBuilder();
 
-        // query dati
+        // data
         CriteriaQuery<Product> cq = cb.createQuery(Product.class);
         Root<Product> root = cq.from(Product.class);
         List<Predicate> ps = buildPredicates(c, cb, root);
-
         cq.where(ps.toArray(Predicate[]::new));
         applySort(c.getSortType(), cb, cq, root);
 
@@ -47,7 +47,7 @@ class ProductSearchRepositoryImpl implements ProductSearchRepository {
         tq.setMaxResults(pageable.getPageSize());
         List<Product> content = tq.getResultList();
 
-        // query count
+        // count
         CriteriaQuery<Long> countQ = cb.createQuery(Long.class);
         Root<Product> countRoot = countQ.from(Product.class);
         countQ.select(cb.count(countRoot))
@@ -60,7 +60,7 @@ class ProductSearchRepositoryImpl implements ProductSearchRepository {
     private List<Predicate> buildPredicates(ProductSearchCriteria c, CriteriaBuilder cb, Root<Product> root) {
         List<Predicate> ps = new ArrayList<>();
 
-        // c.getSearch(): LIKE su name/description (case-insensitive)
+        // full-text semplice su name/description
         if (c.getSearch() != null && !c.getSearch().isBlank()) {
             String like = "%" + c.getSearch().toLowerCase() + "%";
             ps.add(cb.or(
@@ -68,27 +68,71 @@ class ProductSearchRepositoryImpl implements ProductSearchRepository {
                     cb.like(cb.lower(root.get("description")), like)));
         }
 
-        // c.getMaxPrice(): price <= max
+        // solo in offerta
+        if (Boolean.TRUE.equals(c.getOnlyOnOffer())) {
+            ps.add(cb.isTrue(root.get("onOffer")));
+        }
+
+        // prezzo massimo
         BigDecimal max = c.getMaxPrice();
         if (max != null) {
             ps.add(cb.lessThanOrEqualTo(root.get("price"), max));
         }
 
-        // NB: il tuo Product attuale NON ha campi come onOffer/freshDate.
-        // Se li aggiungerai, estendi qui i predicati.
+        // specie richieste: match su name IN (case-insensitive)
+        if (c.getItems() != null && !c.getItems().isEmpty()) {
+            List<String> itemsLower = c.getItems().stream()
+                    .filter(s -> s != null && !s.isBlank())
+                    .map(s -> s.toLowerCase())
+                    .toList();
+            if (!itemsLower.isEmpty()) {
+                Expression<String> nameLower = cb.lower(root.get("name"));
+                ps.add(nameLower.in(itemsLower));
+            }
+        }
+
+        // includere preparati/marinati
+        if (Boolean.FALSE.equals(c.getIncludePrepared())) {
+            // escludi prepared=true (lascia passare null o false)
+            ps.add(cb.or(cb.isNull(root.get("prepared")), cb.isFalse(root.get("prepared"))));
+        }
+        // se TRUE o null => non filtriamo
+
+        // freshFromDate: priorità a catch_date; se null, fallback su created_at (DATE)
+        LocalDate from = c.getFreshFromDate();
+        if (from != null) {
+            // date(created_at) >= from
+            Expression<LocalDate> createdDate = cb.function("date", LocalDate.class, root.get("createdAt"));
+            Predicate pCatch = cb.and(cb.isNotNull(root.get("catchDate")),
+                    cb.greaterThanOrEqualTo(root.get("catchDate"), from));
+            Predicate pCreated = cb.and(cb.isNull(root.get("catchDate")),
+                    cb.greaterThanOrEqualTo(createdDate, from));
+            ps.add(cb.or(pCatch, pCreated));
+        }
+
+        // minQuantityKg (se hai il campo)
+        if (c.getMinQuantityKg() != null) {
+            ps.add(cb.greaterThanOrEqualTo(root.get("quantityKg"), c.getMinQuantityKg()));
+        }
 
         return ps;
     }
 
-    private void applySort(SortType sortType, CriteriaBuilder cb, CriteriaQuery<Product> cq, Root<Product> root) {
-        if (sortType == null)
+    private void applySort(SortType sort, CriteriaBuilder cb, CriteriaQuery<Product> cq, Root<Product> root) {
+        if (sort == null)
             return;
-        switch (sortType) {
+        switch (sort) {
             case PRICE_ASC -> cq.orderBy(cb.asc(root.get("price")));
             case PRICE_DESC -> cq.orderBy(cb.desc(root.get("price")));
             case NAME_ASC -> cq.orderBy(cb.asc(root.get("name")));
             case NAME_DESC -> cq.orderBy(cb.desc(root.get("name")));
-            // FRESHNESS_* o OFFER_FIRST richiedono campi che oggi non esistono: ignorali
+            case FRESHNESS_DESC -> cq.orderBy(
+                    cb.desc(root.get("catchDate")),
+                    cb.desc(cb.function("date", java.time.LocalDate.class, root.get("createdAt"))));
+            case FRESHNESS_ASC -> cq.orderBy(
+                    cb.asc(root.get("catchDate")),
+                    cb.asc(cb.function("date", java.time.LocalDate.class, root.get("createdAt"))));
+            case OFFER_FIRST -> cq.orderBy(cb.desc(root.get("onOffer")), cb.asc(root.get("price")));
             default -> {
                 /* no-op */ }
         }
