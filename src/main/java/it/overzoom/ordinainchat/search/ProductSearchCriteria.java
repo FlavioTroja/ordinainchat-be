@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+import it.overzoom.ordinainchat.type.FreshnessType;
 import it.overzoom.ordinainchat.type.SortType;
 
 public class ProductSearchCriteria {
@@ -17,6 +18,7 @@ public class ProductSearchCriteria {
     private BigDecimal minQuantityKg; // se gestisci giacenza
     private Boolean includePrepared; // includere marinati/pronti?
     private String search; // testo full-text su name/description (opzionale)
+    private FreshnessType freshness; // es. FRESH, FROZEN
 
     // ordinamento
     private SortType sortType; // es. FRESHNESS_DESC, PRICE_ASC
@@ -84,5 +86,13 @@ public class ProductSearchCriteria {
 
     public void setSortType(SortType sortType) {
         this.sortType = sortType;
+    }
+
+    public FreshnessType getFreshness() {
+        return freshness;
+    }
+
+    public void setFreshness(FreshnessType freshness) {
+        this.freshness = freshness;
     }
 }

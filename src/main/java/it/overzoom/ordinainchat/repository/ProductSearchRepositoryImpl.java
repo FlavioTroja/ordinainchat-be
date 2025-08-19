@@ -110,6 +110,16 @@ class ProductSearchRepositoryImpl implements ProductSearchRepository {
             ps.add(cb.or(pCatch, pCreated));
         }
 
+        // filtro per freschezza
+        if (c.getFreshness() != null) {
+            ps.add(cb.equal(root.get("freshness"), c.getFreshness()));
+        }
+
+        // filtro per freshFromDate (catchDate >= freshFromDate)
+        if (c.getFreshFromDate() != null) {
+            ps.add(cb.greaterThanOrEqualTo(root.get("catchDate"), c.getFreshFromDate()));
+        }
+
         // minQuantityKg (se hai il campo)
         if (c.getMinQuantityKg() != null) {
             ps.add(cb.greaterThanOrEqualTo(root.get("quantityKg"), c.getMinQuantityKg()));
