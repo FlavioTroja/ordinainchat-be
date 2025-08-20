@@ -88,6 +88,12 @@ public class TelegramWebhookController {
                 String tool = node.get("tool").asText("");
                 JsonNode modelArgs = node.path("arguments");
                 switch (tool.toLowerCase(java.util.Locale.ITALY)) {
+                    case "greeting", "hello", "hi" -> {
+                        rispostaFinale = "Ciao! 👋 Posso dirti cosa c’è di fresco o in offerta, i prezzi al kg, oppure creare un ordine.";
+                    }
+                    case "help" -> {
+                        rispostaFinale = "Puoi chiedermi, ad esempio:\n• Cosa hai di fresco?\n• Cosa hai in offerta oggi?\n• A quanto vanno le triglie?\n• Le spigole sono surgelate?\n• Vorrei 1,5 kg di cozze per stasera.";
+                    }
                     case "products_search" -> {
                         com.fasterxml.jackson.databind.node.ObjectNode args = sanitizeProductsSearchArgs(modelArgs);
 
@@ -108,7 +114,10 @@ public class TelegramWebhookController {
                         String mcpBody = callMcp(payload);
                         rispostaFinale = renderProductsSearchReply(mcpBody);
                     }
-                    default -> rispostaFinale = raw; // tool non gestito → testo libero
+                    default -> {
+                        // Se il modello ha sbagliato a usare un tool, rispondi comunque in chiaro
+                        rispostaFinale = "Ciao! Posso aiutarti con prodotti, offerte, prezzi o creare un ordine. Dimmi pure.";
+                    }
                 }
             } else {
                 rispostaFinale = raw; // non è JSON MCP → testo libero
