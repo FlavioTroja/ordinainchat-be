@@ -1,0 +1,56 @@
+name: Build & Deploy Production Spring-Boot Container
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-and-push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/ordinainchat-be:latest
+
+  deploy:
+    name: SSH deploy to production server
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (for consistency)
+        uses: actions/checkout@v4
+
+      # ===== Deploy on Production Server =====
+      - name: Deploy on Production Server ORDINAINCHAT-BE
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /home/manager/orchestrator
+
+            # Update Docker image
+            docker compose pull ordinainchat-be
+
+            # Recreate only the production service
+            docker compose up -d ordinainchat-be

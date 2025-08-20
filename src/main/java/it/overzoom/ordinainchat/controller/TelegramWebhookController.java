@@ -6,8 +6,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -23,19 +21,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import it.overzoom.ordinainchat.mcp.McpClient;
 import it.overzoom.ordinainchat.model.Conversation;
 import it.overzoom.ordinainchat.model.Message;
-import it.overzoom.ordinainchat.model.Product;
 import it.overzoom.ordinainchat.model.User;
-import it.overzoom.ordinainchat.repository.ProductRepository;
-import it.overzoom.ordinainchat.search.ProductSearchCriteria;
 import it.overzoom.ordinainchat.service.ChatHistoryService;
 import it.overzoom.ordinainchat.service.OpenAiService;
 import it.overzoom.ordinainchat.service.OpenAiService.ChatMessage;
 import it.overzoom.ordinainchat.service.PromptLoader;
 import it.overzoom.ordinainchat.service.UserService;
-import it.overzoom.ordinainchat.type.SortType;
 
 @RestController
 @RequestMapping("/api/telegram")
@@ -47,24 +40,19 @@ public class TelegramWebhookController {
     @org.springframework.beans.factory.annotation.Value("${mcp.api-key:}")
     private String mcpApiKey;
 
-    private final ProductRepository productRepository;
     private final OpenAiService openAiService;
     private final UserService userService;
     private final PromptLoader promptLoader;
     private final ChatHistoryService chatHistoryService;
-    private final McpClient mcpClient;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public TelegramWebhookController(OpenAiService openAiService, UserService userService,
-            ChatHistoryService chatHistoryService, PromptLoader promptLoader, ProductRepository productRepository,
-            McpClient mcpClient) {
+            ChatHistoryService chatHistoryService, PromptLoader promptLoader) {
         this.openAiService = openAiService;
         this.userService = userService;
         this.chatHistoryService = chatHistoryService;
         this.promptLoader = promptLoader;
-        this.productRepository = productRepository;
-        this.mcpClient = mcpClient;
     }
 
     @PostMapping("/webhook")
@@ -167,26 +155,6 @@ public class TelegramWebhookController {
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
         restTemplate.postForEntity(url, entity, String.class);
-    }
-
-    /**
-     * Cerca il prodotto più rilevante per nome/descrizione usando il tuo repository
-     * custom.
-     * - match case-insensitive su name/description
-     * - ritorna il primo risultato ordinato per nome asc (fallback).
-     */
-    public Product findBestProduct(String nameOrQuery) {
-        if (nameOrQuery == null || nameOrQuery.isBlank())
-            return null;
-
-        ProductSearchCriteria c = new ProductSearchCriteria();
-        c.setSearch(nameOrQuery);
-        c.setSortType(SortType.NAME_ASC);
-
-        Page<Product> page = productRepository.search(c, PageRequest.of(0, 1));
-        if (page.isEmpty())
-            return null;
-        return page.getContent().get(0);
     }
 
     private com.fasterxml.jackson.databind.node.ObjectNode sanitizeProductsSearchArgs(JsonNode modelNode) {
