@@ -31,7 +31,7 @@ import it.overzoom.ordinainchat.service.PromptLoader;
 import it.overzoom.ordinainchat.service.UserService;
 
 @RestController
-@RequestMapping("/api/telegram")
+@RequestMapping("/telegram")
 public class TelegramWebhookController {
 
     @org.springframework.beans.factory.annotation.Value("${mcp.server.base-url:http://localhost:5000/api/mcp}")
