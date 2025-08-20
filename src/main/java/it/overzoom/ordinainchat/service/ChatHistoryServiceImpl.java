@@ -27,7 +27,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
     public Conversation ensureConversation(UUID userId, String chatId) {
         return conversationRepo.findTopByUserIdAndTelegramChatIdOrderByLastActivityAtDesc(userId, chatId)
                 .orElseGet(() -> {
-                    var c = new Conversation();
+                    Conversation c = new Conversation();
                     c.setUserId(userId);
                     c.setTelegramChatId(chatId);
                     c.setTitle("Telegram chat " + chatId);
@@ -37,13 +37,13 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
 
     @Transactional
     public Message append(UUID conversationId, Role role, String content, String model, Integer tokens) {
-        var m = new Message();
+        Message m = new Message();
         m.setConversationId(conversationId);
         m.setRole(role);
         m.setContent(content);
         m.setModel(model);
         m.setTokenCount(tokens);
-        var saved = messageRepo.save(m);
+        Message saved = messageRepo.save(m);
 
         // bump last activity
         conversationRepo.findById(conversationId).ifPresent(c -> {
@@ -55,7 +55,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
 
     @Transactional(readOnly = true)
     public List<Message> lastMessages(UUID conversationId, int max) {
-        var list = messageRepo.findTop50ByConversationIdOrderByCreatedAtDesc(conversationId);
+        List<Message> list = messageRepo.findTop50ByConversationIdOrderByCreatedAtDesc(conversationId);
         return list.size() <= max ? list : list.subList(0, max);
     }
 }

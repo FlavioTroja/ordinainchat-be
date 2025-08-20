@@ -33,7 +33,7 @@ public abstract class BaseEntity implements Serializable {
 
     @PrePersist
     protected void onCreate() {
-        var now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now();
         createdAt = now;
         updatedAt = now;
     }

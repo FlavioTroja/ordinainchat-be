@@ -13,7 +13,7 @@ public class PromptLoader {
 
     public String loadSystemPrompt(UUID userId) {
         try {
-            var resource = new ClassPathResource("prompts/system.txt");
+            ClassPathResource resource = new ClassPathResource("prompts/system.txt");
             String content = Files.readString(Paths.get(resource.getURI()));
             return content.replace("{USER_ID}", userId.toString());
         } catch (IOException e) {

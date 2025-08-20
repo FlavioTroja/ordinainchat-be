@@ -18,6 +18,9 @@ public class User extends BaseEntity {
     @Column(name = "telegram_user_id", nullable = false, length = 64)
     private String telegramUserId;
 
+    @Column(name = "phone_number", length = 20)
+    private String phoneNumber;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "current_step", length = 50)
     private StepType currentStep = StepType.START;
@@ -37,5 +40,13 @@ public class User extends BaseEntity {
 
     public void setCurrentStep(StepType currentStep) {
         this.currentStep = currentStep;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
     }
 }

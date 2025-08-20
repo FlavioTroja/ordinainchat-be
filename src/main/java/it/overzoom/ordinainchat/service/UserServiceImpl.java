@@ -24,7 +24,7 @@ public class UserServiceImpl implements UserService {
 
     @Transactional
     public User createWithTelegramId(String telegramUserId) {
-        var user = new User();
+        User user = new User();
         user.setTelegramUserId(telegramUserId);
         // eventuale default per currentStep
         return userRepository.save(user);

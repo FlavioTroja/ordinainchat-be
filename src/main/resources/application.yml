@@ -61,6 +61,11 @@ telegram:
 
 openai:
   api-key: ${OPENAI_API_KEY}
-  model: ${OPENAI_MODEL:gpt-5.1-mini}
+  model: ${OPENAI_MODEL:gpt-5.0-nano}
   temperature: ${OPENAI_TEMPERATURE:0}
   max-tokens: ${OPENAI_MAX_TOKENS:600}
+
+mcp:
+  server:
+    base-url: ${MCP_SERVER_URL:http://localhost:5000/api}  
+  api-key: ${MCP_API_KEY}
