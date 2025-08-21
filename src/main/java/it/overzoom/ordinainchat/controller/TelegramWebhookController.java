@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.springframework.http.HttpEntity;
@@ -83,8 +84,8 @@ public class TelegramWebhookController {
         String rispostaFinale;
         try {
             // proviamo a leggere un JSON azione in stile MCP
-            JsonNode node = objectMapper.readTree(raw.trim());
-            if (node.hasNonNull("tool")) {
+            JsonNode node = safeParseAction(raw);
+            if (node != null && node.hasNonNull("tool")) {
                 String tool = node.get("tool").asText("");
                 JsonNode modelArgs = node.path("arguments");
                 switch (tool.toLowerCase(java.util.Locale.ITALY)) {
@@ -95,18 +96,10 @@ public class TelegramWebhookController {
                         rispostaFinale = "Puoi chiedermi, ad esempio:\n• Cosa hai di fresco?\n• Cosa hai in offerta oggi?\n• A quanto vanno le triglie?\n• Le spigole sono surgelate?\n• Vorrei 1,5 kg di cozze per stasera.";
                     }
                     case "products_search" -> {
-                        com.fasterxml.jackson.databind.node.ObjectNode args = sanitizeProductsSearchArgs(modelArgs);
-
-                        // meta reali (evita placeholder)
-                        com.fasterxml.jackson.databind.node.ObjectNode meta = objectMapper.createObjectNode();
-                        // se hai il numero cliente, mettilo; altrimenti ometti
-                        // if (user.getPhoneNumber() != null && !user.getPhoneNumber().isBlank()) {
-                        // meta.put("phoneNumber", user.getPhoneNumber());
-                        // }
-                        meta.put("telegramUserId", telegramUserId);
-
-                        // chiama MCP server
-                        com.fasterxml.jackson.databind.node.ObjectNode payload = objectMapper.createObjectNode();
+                        ObjectNode args = sanitizeProductsSearchArgs(modelArgs, text);
+                        ObjectNode meta = objectMapper.createObjectNode();
+                        meta.put("telegramUserId", String.valueOf(telegramUserId));
+                        ObjectNode payload = objectMapper.createObjectNode();
                         payload.put("tool", "products_search");
                         payload.set("arguments", args);
                         payload.set("meta", meta);
@@ -115,12 +108,12 @@ public class TelegramWebhookController {
                         rispostaFinale = renderProductsSearchReply(mcpBody);
                     }
                     default -> {
-                        // Se il modello ha sbagliato a usare un tool, rispondi comunque in chiaro
                         rispostaFinale = "Ciao! Posso aiutarti con prodotti, offerte, prezzi o creare un ordine. Dimmi pure.";
                     }
                 }
             } else {
-                rispostaFinale = raw; // non è JSON MCP → testo libero
+                // non è JSON MCP → testo libero
+                rispostaFinale = raw;
             }
         } catch (Exception e) {
             rispostaFinale = raw;
@@ -166,7 +159,8 @@ public class TelegramWebhookController {
         restTemplate.postForEntity(url, entity, String.class);
     }
 
-    private com.fasterxml.jackson.databind.node.ObjectNode sanitizeProductsSearchArgs(JsonNode modelNode) {
+    private ObjectNode sanitizeProductsSearchArgs(JsonNode modelNode,
+            String userUtterance) {
         ObjectMapper om = this.objectMapper;
         ObjectNode args = om.createObjectNode();
 
@@ -196,6 +190,21 @@ public class TelegramWebhookController {
         limit = Math.max(1, Math.min(limit, 50));
         args.put("page", 0);
         args.put("size", limit);
+
+        String u = (userUtterance == null) ? "" : userUtterance.toLowerCase(Locale.ITALY);
+        boolean askLocal = u.contains("locale") || u.contains("puglia") || u.contains("pugliese") ||
+                u.contains("adriatico") || u.contains("ionio") || u.contains("italia") || u.contains("italiano");
+
+        if (askLocal) {
+            args.put("originCountry", "IT");
+            args.put("faoAreaPrefix", "37.2"); // Mediterraneo Centrale (Adriatico/Ionio)
+            args.put("originAreaLike", "puglia|adriatico|ionio");
+            args.put("landingPortLike", "bari|brindisi|taranto|manfredonia|monopoli|molfetta|trani|barletta|gallipoli");
+            // se non fissato dal modello, preferisci fresco e pescato
+            if (!args.has("freshness"))
+                args.put("freshness", "FRESH");
+            args.put("source", "WILD_CAUGHT");
+        }
 
         return args;
     }
@@ -344,6 +353,61 @@ public class TelegramWebhookController {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    // dentro TelegramWebhookController
+
+    private JsonNode safeParseAction(String raw) throws Exception {
+        if (raw == null)
+            return null;
+        String s = raw.trim();
+
+        // 1) Se è wrappato in code fence ```...```, estrai il contenuto
+        if (s.startsWith("```")) {
+            int first = s.indexOf("```");
+            int last = s.lastIndexOf("```");
+            if (last > first) {
+                s = s.substring(first + 3, last).trim();
+            }
+        }
+
+        // 2) Se non è puro JSON, prova a cercare un blocco che inizi con {"tool":
+        int idx = s.indexOf("{\"tool\"");
+        if (idx >= 0) {
+            // trova la fine dell’oggetto bilanciando le graffe
+            int end = findMatchingBraceEnd(s, idx);
+            if (end > idx) {
+                String jsonSlice = s.substring(idx, end + 1);
+                try {
+                    return objectMapper.readTree(jsonSlice);
+                } catch (Exception ignore) {
+                    // continua con tentativi successivi
+                }
+            }
+        }
+
+        // 3) Tentativo “normale”
+        try {
+            return objectMapper.readTree(s);
+        } catch (Exception e) {
+            return null; // il chiamante deciderà il fallback
+        }
+    }
+
+    private int findMatchingBraceEnd(String s, int start) {
+        int depth = 0;
+        for (int i = start; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '{')
+                depth++;
+            else if (c == '}') {
+                depth--;
+                if (depth == 0)
+                    return i;
+            }
+            // opzionale: gestire stringhe/escape se vuoi essere ultra-rigido
+        }
+        return -1;
     }
 
 }
