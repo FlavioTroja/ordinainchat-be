@@ -7,8 +7,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +18,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,7 +27,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import it.overzoom.ordinainchat.model.Conversation;
 import it.overzoom.ordinainchat.model.Message;
 import it.overzoom.ordinainchat.model.User;
+import it.overzoom.ordinainchat.service.ChatHelperService;
 import it.overzoom.ordinainchat.service.ChatHistoryService;
+import it.overzoom.ordinainchat.service.McpService;
 import it.overzoom.ordinainchat.service.OpenAiService;
 import it.overzoom.ordinainchat.service.OpenAiService.ChatMessage;
 import it.overzoom.ordinainchat.service.PromptLoader;
@@ -42,25 +41,24 @@ public class TelegramWebhookController {
 
     private final Logger logger = LoggerFactory.getLogger(TelegramWebhookController.class);
 
-    @org.springframework.beans.factory.annotation.Value("${mcp.server.base-url:http://localhost:5000/api/mcp}")
-    private String mcpBaseUrl;
-
-    @org.springframework.beans.factory.annotation.Value("${mcp.api-key:}")
-    private String mcpApiKey;
-
     private final OpenAiService openAiService;
     private final UserService userService;
     private final PromptLoader promptLoader;
     private final ChatHistoryService chatHistoryService;
+    private final ChatHelperService chatHelperService;
+    private final McpService mcpService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public TelegramWebhookController(OpenAiService openAiService, UserService userService,
-            ChatHistoryService chatHistoryService, PromptLoader promptLoader) {
+            ChatHistoryService chatHistoryService, PromptLoader promptLoader, ChatHelperService chatHelperService,
+            McpService mcpService) {
         this.openAiService = openAiService;
         this.userService = userService;
         this.chatHistoryService = chatHistoryService;
         this.promptLoader = promptLoader;
+        this.chatHelperService = chatHelperService;
+        this.mcpService = mcpService;
     }
 
     private final Map<String, String> pendingProductByChat = new ConcurrentHashMap<>();
@@ -97,7 +95,7 @@ public class TelegramWebhookController {
         String rispostaFinale;
         try {
             if (raw != null && raw.toLowerCase(Locale.ITALY).contains("quanti kg")) {
-                String guessed = guessProductNameFromText(raw);
+                String guessed = chatHelperService.guessProductNameFromText(raw);
                 if (guessed != null) {
                     pendingProductByChat.put(chatId, guessed);
                 }
@@ -126,7 +124,7 @@ public class TelegramWebhookController {
                         payload.set("meta", meta);
 
                         logger.info("Calling MCP for products search with payload: {}", payload);
-                        String mcpBody = callMcp(payload);
+                        String mcpBody = mcpService.callMcp(payload);
                         logger.info("MCP response: {}", mcpBody);
                         rispostaFinale = renderProductsSearchReply(mcpBody);
                         logger.info("Final response for products search: {}", rispostaFinale);
@@ -278,36 +276,6 @@ public class TelegramWebhookController {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    private String callMcp(JsonNode payload) {
-        String url = mcpBaseUrl + "/call";
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        if (mcpApiKey != null && !mcpApiKey.isBlank()) {
-            headers.add("X-MCP-KEY", mcpApiKey);
-        }
-        HttpEntity<String> entity = new HttpEntity<>(payload.toString(), headers);
-        try {
-            RestTemplate rt = new RestTemplate();
-            ResponseEntity<String> res = rt.postForEntity(url, entity, String.class);
-            return res.getBody();
-        } catch (HttpStatusCodeException ex) {
-            return """
-                    {"status":"error","message":"client_error: %s","httpStatus":%d,"body":%s}
-                    """.formatted(ex.getStatusText(), ex.getStatusCode().value(),
-                    jsonSafe(ex.getResponseBodyAsString()));
-        } catch (Exception e) {
-            return """
-                    {"status":"error","message":"client_error: %s"}
-                    """.formatted(jsonSafe(e.getMessage()));
-        }
-    }
-
-    private String jsonSafe(String s) {
-        if (s == null)
-            return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private String renderProductsSearchReply(String mcpResponseBody) {
@@ -497,7 +465,7 @@ public class TelegramWebhookController {
         payload.set("meta", meta);
 
         logger.info("FORCED MCP call (implicit intent) with payload: {}", payload);
-        String mcpBody = callMcp(payload);
+        String mcpBody = mcpService.callMcp(payload);
         logger.info("FORCED MCP response: {}", mcpBody);
 
         // Heading in base all’intento
@@ -601,7 +569,7 @@ public class TelegramWebhookController {
             Message m = context.get(i);
             if (m.getRole() == Message.Role.ASSISTANT) {
                 String t = (m.getContent() == null) ? "" : m.getContent().toLowerCase(Locale.ITALY);
-                String candidate = guessProductNameFromText(t);
+                String candidate = chatHelperService.guessProductNameFromText(t);
                 if (candidate != null)
                     return candidate;
             }
@@ -612,35 +580,10 @@ public class TelegramWebhookController {
             Message m = context.get(i);
             if (m.getRole() == Message.Role.USER) {
                 String t = (m.getContent() == null) ? "" : m.getContent().toLowerCase(Locale.ITALY);
-                String candidate = guessProductNameFromText(t);
+                String candidate = chatHelperService.guessProductNameFromText(t);
                 if (candidate != null)
                     return candidate;
             }
-        }
-
-        return null;
-    }
-
-    // Estrae un nome prodotto "semplice" dal testo (euristica leggera)
-    private String guessProductNameFromText(String t) {
-        if (t == null || t.isBlank())
-            return null;
-
-        // Lista di parole "tipiche" (ampliala a piacere o sostituiscila con dizionario)
-        String[] common = new String[] {
-                "cozze pelose", "cozze", "triglie", "trigliette", "spigola", "orate", "orata",
-                "fasolari", "vongole", "ostriche", "gamberi", "polpo", "seppie", "calamari", "ricci"
-        };
-        for (String k : common) {
-            if (t.contains(k))
-                return k;
-        }
-
-        // prova a prendere una voce da elenco puntato "• Nome —" se presente
-        Pattern p = Pattern.compile("•\\s*([\\p{L} .'-]+?)\\s+—");
-        Matcher m = p.matcher(t);
-        if (m.find()) {
-            return m.group(1).trim().toLowerCase(Locale.ITALY);
         }
 
         return null;
@@ -680,7 +623,7 @@ public class TelegramWebhookController {
             searchPayload.set("meta", searchMeta);
 
             logger.info("Quantity flow: searching productId for '{}'", productName);
-            String mcpSearch = callMcp(searchPayload);
+            String mcpSearch = mcpService.callMcp(searchPayload);
 
             JsonNode root = objectMapper.readTree(mcpSearch == null ? "{}" : mcpSearch);
             JsonNode data = root.path("data");
@@ -713,7 +656,7 @@ public class TelegramWebhookController {
             orderPayload.set("meta", orderMeta);
 
             logger.info("Quantity flow: creating order for productId={}, qtyKg={}", productId, qty);
-            String mcpOrder = callMcp(orderPayload);
+            String mcpOrder = mcpService.callMcp(orderPayload);
 
             // (Facoltativo) puoi parsare mcpOrder per un numero ordine, ecc.
             // Qui rispondo in chiaro, NIENTE markdown (niente **, niente _)
