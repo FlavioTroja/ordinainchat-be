@@ -177,6 +177,7 @@ public class TelegramWebhookController {
         Map<String, Object> body = new HashMap<>();
         body.put("chat_id", chatId);
         body.put("text", messaggio);
+        body.put("parse_mode", "MarkdownV2");
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
         restTemplate.postForEntity(url, entity, String.class);
