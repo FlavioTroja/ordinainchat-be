@@ -6,6 +6,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,6 +63,8 @@ public class TelegramWebhookController {
         this.promptLoader = promptLoader;
     }
 
+    private final Map<String, String> pendingProductByChat = new ConcurrentHashMap<>();
+
     @PostMapping("/webhook")
     public ResponseEntity<String> onUpdate(@RequestBody Map<String, Object> update) {
         Map<String, Object> message = (Map<String, Object>) update.get("message");
@@ -91,13 +96,19 @@ public class TelegramWebhookController {
 
         String rispostaFinale;
         try {
+            if (raw != null && raw.toLowerCase(Locale.ITALY).contains("quanti kg")) {
+                String guessed = guessProductNameFromText(raw);
+                if (guessed != null) {
+                    pendingProductByChat.put(chatId, guessed);
+                }
+            }
             // proviamo a leggere un JSON azione in stile MCP
             JsonNode node = safeParseAction(raw);
             logger.info("Raw response: {}, Parsed node: {}", raw, node);
             if (node != null && node.hasNonNull("tool")) {
                 String tool = node.get("tool").asText("");
                 JsonNode modelArgs = node.path("arguments");
-                switch (tool.toLowerCase(java.util.Locale.ITALY)) {
+                switch (tool.toLowerCase(Locale.ITALY)) {
                     case "greeting", "hello", "hi" -> {
                         logger.info("Responding to greeting for telegramUserId: {}", telegramUserId);
                         rispostaFinale = "Ciao! 👋 Posso dirti cosa c’è di fresco o in offerta, i prezzi al kg, oppure creare un ordine.";
@@ -125,16 +136,28 @@ public class TelegramWebhookController {
                     }
                 }
             } else {
-                // non è JSON MCP → testo libero
                 logger.info("Non-JSON MCP response for telegramUserId: {}", telegramUserId);
                 String lower = (text == null ? "" : text.toLowerCase(Locale.ITALY));
 
-                String forced = maybeHandleImplicitIntents(lower, telegramUserId);
-                if (forced != null) {
-                    rispostaFinale = forced;
+                // 1) Se l’utente ha risposto con un numero → prova a trattarlo come kg
+                if (isNumericQuantity(lower)) {
+                    String qtyStr = lower.replace(",", ".").trim();
+                    String handled = maybeHandleQuantityReply(chatId, telegramUserId, qtyStr, context);
+                    if (handled != null) {
+                        rispostaFinale = handled;
+                    } else {
+                        // Non sono riuscito a capire il prodotto → chiedi quale articolo
+                        rispostaFinale = "Ok, " + qtyStr + " kg. Per quale articolo li desideri?";
+                    }
                 } else {
-                    logger.info("Non-JSON MCP response for telegramUserId: {}", telegramUserId);
-                    rispostaFinale = raw; // fallback finale
+                    // 2) Altrimenti, prova intent impliciti (fresco/offerte/locale)
+                    String forced = maybeHandleImplicitIntents(lower, telegramUserId);
+                    if (forced != null) {
+                        rispostaFinale = forced;
+                    } else {
+                        // 3) Niente di speciale: mostra il testo così com’è
+                        rispostaFinale = raw;
+                    }
                 }
             }
         } catch (Exception e) {
@@ -555,6 +578,172 @@ public class TelegramWebhookController {
         } catch (Exception e) {
             return "Errore nel parsing della risposta dal gestionale.";
         }
+    }
+
+    private boolean isNumericQuantity(String s) {
+        if (s == null)
+            return false;
+        // accetta "2", "2.0", "2,5"
+        return s.matches("\\d+(?:[\\.,]\\d+)?");
+    }
+
+    // Prova a dedurre il nome prodotto dal contesto recente
+    private String guessProductNameFromHistory(List<Message> context) {
+        if (context == null || context.isEmpty())
+            return null;
+
+        // 1) Se ho salvato un "pending" esplicito, quello ha priorità
+        // (usa chatId se vuoi; qui non ce l’ho: gestisco altrove)
+
+        // 2) Cerca nell’ultimo messaggio dell’assistente una riga tipo "Sì, oggi
+        // abbiamo le cozze pelose ..."
+        for (int i = context.size() - 1; i >= 0; i--) {
+            Message m = context.get(i);
+            if (m.getRole() == Message.Role.ASSISTANT) {
+                String t = (m.getContent() == null) ? "" : m.getContent().toLowerCase(Locale.ITALY);
+                String candidate = guessProductNameFromText(t);
+                if (candidate != null)
+                    return candidate;
+            }
+        }
+
+        // 3) In fallback, guarda l’ultima domanda dell’utente con una parola prodotto
+        for (int i = context.size() - 1; i >= 0; i--) {
+            Message m = context.get(i);
+            if (m.getRole() == Message.Role.USER) {
+                String t = (m.getContent() == null) ? "" : m.getContent().toLowerCase(Locale.ITALY);
+                String candidate = guessProductNameFromText(t);
+                if (candidate != null)
+                    return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    // Estrae un nome prodotto "semplice" dal testo (euristica leggera)
+    private String guessProductNameFromText(String t) {
+        if (t == null || t.isBlank())
+            return null;
+
+        // Lista di parole "tipiche" (ampliala a piacere o sostituiscila con dizionario)
+        String[] common = new String[] {
+                "cozze pelose", "cozze", "triglie", "trigliette", "spigola", "orate", "orata",
+                "fasolari", "vongole", "ostriche", "gamberi", "polpo", "seppie", "calamari", "ricci"
+        };
+        for (String k : common) {
+            if (t.contains(k))
+                return k;
+        }
+
+        // prova a prendere una voce da elenco puntato "• Nome —" se presente
+        Pattern p = Pattern.compile("•\\s*([\\p{L} .'-]+?)\\s+—");
+        Matcher m = p.matcher(t);
+        if (m.find()) {
+            return m.group(1).trim().toLowerCase(Locale.ITALY);
+        }
+
+        return null;
+    }
+
+    // Gestisce la risposta numerica: trova prodotto, prende id via products_search
+    // e crea l’ordine
+    private String maybeHandleQuantityReply(String chatId, String telegramUserId, String qtyStr,
+            List<Message> context) {
+        try {
+            // 1) kg come BigDecimal
+            java.math.BigDecimal qty = new java.math.BigDecimal(qtyStr);
+
+            // 2) Prodotto: prima pending, poi history
+            String productName = pendingProductByChat.get(chatId);
+            if (productName == null) {
+                productName = guessProductNameFromHistory(context);
+            }
+            if (productName == null) {
+                return null; // non so che prodotto → chiedi quale articolo
+            }
+
+            // 3) Cerca l’ID con products_search
+            ObjectNode searchArgs = objectMapper.createObjectNode();
+            searchArgs.put("textSearch", productName);
+            // (opzionale) se spesso è fresco:
+            // searchArgs.put("freshness", "FRESH");
+            searchArgs.put("page", 0);
+            searchArgs.put("size", 1);
+
+            ObjectNode searchMeta = objectMapper.createObjectNode();
+            searchMeta.put("telegramUserId", telegramUserId);
+
+            ObjectNode searchPayload = objectMapper.createObjectNode();
+            searchPayload.put("tool", "products_search");
+            searchPayload.set("arguments", searchArgs);
+            searchPayload.set("meta", searchMeta);
+
+            logger.info("Quantity flow: searching productId for '{}'", productName);
+            String mcpSearch = callMcp(searchPayload);
+
+            JsonNode root = objectMapper.readTree(mcpSearch == null ? "{}" : mcpSearch);
+            JsonNode data = root.path("data");
+            if (data.isMissingNode())
+                data = root;
+            JsonNode items = data.path("items");
+            if (!items.isArray() || items.size() == 0) {
+                // non trovato
+                return "Non riesco a trovare \"" + productName + "\" adesso. Vuoi che cerchi un’alternativa?";
+            }
+            long productId = items.get(0).path("id").asLong(0L);
+            if (productId <= 0)
+                return "Ho un problema a identificare l’articolo. Riproviamo con il nome completo.";
+
+            // 4) Crea ordine
+            ObjectNode orderArgs = objectMapper.createObjectNode();
+            com.fasterxml.jackson.databind.node.ArrayNode arr = objectMapper.createArrayNode();
+            ObjectNode item = objectMapper.createObjectNode();
+            item.put("productId", productId);
+            item.put("quantityKg", qty);
+            arr.add(item);
+            orderArgs.set("items", arr);
+
+            ObjectNode orderMeta = objectMapper.createObjectNode();
+            orderMeta.put("telegramUserId", telegramUserId);
+
+            ObjectNode orderPayload = objectMapper.createObjectNode();
+            orderPayload.put("tool", "orders_create");
+            orderPayload.set("arguments", orderArgs);
+            orderPayload.set("meta", orderMeta);
+
+            logger.info("Quantity flow: creating order for productId={}, qtyKg={}", productId, qty);
+            String mcpOrder = callMcp(orderPayload);
+
+            // (Facoltativo) puoi parsare mcpOrder per un numero ordine, ecc.
+            // Qui rispondo in chiaro, NIENTE markdown (niente **, niente _)
+            // Pulisco anche eventuale pending
+            pendingProductByChat.remove(chatId);
+
+            String niceQty = qty.stripTrailingZeros().toPlainString().replace('.', ',');
+            String cleanName = capitalizeWords(productName);
+            return "Perfetto: messi da parte " + niceQty + " kg di " + cleanName
+                    + ". Vuoi aggiungere altro o passo al ritiro/consegna?";
+        } catch (Exception e) {
+            logger.error("Quantity flow error", e);
+            return "Ho avuto un problema nel registrare la quantità. Puoi ripetere il prodotto e i kg?";
+        }
+    }
+
+    // Utility per capitalizzare in modo semplice il nome prodotto
+    private String capitalizeWords(String s) {
+        if (s == null || s.isBlank())
+            return s;
+        String[] parts = s.split("\\s+");
+        StringBuilder out = new StringBuilder();
+        for (String p : parts) {
+            if (p.isEmpty())
+                continue;
+            out.append(Character.toUpperCase(p.charAt(0)))
+                    .append(p.length() > 1 ? p.substring(1) : "")
+                    .append(" ");
+        }
+        return out.toString().trim();
     }
 
 }
