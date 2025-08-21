@@ -127,7 +127,15 @@ public class TelegramWebhookController {
             } else {
                 // non è JSON MCP → testo libero
                 logger.info("Non-JSON MCP response for telegramUserId: {}", telegramUserId);
-                rispostaFinale = raw;
+                String lower = (text == null ? "" : text.toLowerCase(Locale.ITALY));
+
+                String forced = maybeHandleImplicitIntents(lower, telegramUserId);
+                if (forced != null) {
+                    rispostaFinale = forced;
+                } else {
+                    logger.info("Non-JSON MCP response for telegramUserId: {}", telegramUserId);
+                    rispostaFinale = raw; // fallback finale
+                }
             }
         } catch (Exception e) {
             logger.error("Error processing message for telegramUserId: {}", telegramUserId, e);
@@ -423,6 +431,130 @@ public class TelegramWebhookController {
             // opzionale: gestire stringhe/escape se vuoi essere ultra-rigido
         }
         return -1;
+    }
+
+    private String maybeHandleImplicitIntents(String lower, String telegramUserId) {
+        // Intent: "fresco oggi", "cosa avete di fresco", ecc.
+        boolean askFresh = lower.contains("fresco") || lower.contains("di fresco");
+        boolean askOffer = lower.contains("offerta") || lower.contains("in offerta") || lower.contains("promo");
+        boolean askLocal = lower.contains("locale") || lower.contains("puglia") || lower.contains("pugliese")
+                || lower.contains("adriatico") || lower.contains("ionio") || lower.contains("italia")
+                || lower.contains("italiano");
+
+        if (!askFresh && !askOffer && !askLocal) {
+            return null; // niente forcing → lascia il flusso attuale
+        }
+
+        // Costruisci payload products_search
+        ObjectNode args = objectMapper.createObjectNode();
+        if (askFresh) {
+            args.put("freshness", "FRESH");
+        }
+        if (askOffer) {
+            args.put("onlyOnOffer", true);
+        }
+        if (askLocal) {
+            args.put("originCountry", "IT");
+            args.put("faoAreaPrefix", "37.2"); // Adriatico/Ionio
+            args.put("originAreaLike", "puglia|adriatico|ionio");
+            args.put("landingPortLike", "bari|brindisi|taranto|manfredonia|monopoli|molfetta|trani|barletta|gallipoli");
+            if (!args.has("freshness"))
+                args.put("freshness", "FRESH");
+            args.put("source", "WILD_CAUGHT");
+        }
+        args.put("page", 0);
+        args.put("size", 10);
+
+        ObjectNode meta = objectMapper.createObjectNode();
+        meta.put("telegramUserId", String.valueOf(telegramUserId));
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("tool", "products_search");
+        payload.set("arguments", args);
+        payload.set("meta", meta);
+
+        logger.info("FORCED MCP call (implicit intent) with payload: {}", payload);
+        String mcpBody = callMcp(payload);
+        logger.info("FORCED MCP response: {}", mcpBody);
+
+        // Heading in base all’intento
+        String heading;
+        if (askFresh && askOffer)
+            heading = "Ecco il fresco in offerta:";
+        else if (askFresh)
+            heading = "Oggi fresco disponibile:";
+        else if (askOffer)
+            heading = "Ecco le offerte disponibili:";
+        else if (askLocal)
+            heading = "Prodotti locali disponibili:";
+        else
+            heading = "Risultati disponibili:";
+
+        return renderProductsSearchReplyWithHeading(mcpBody, heading);
+    }
+
+    private String renderProductsSearchReplyWithHeading(String mcpResponseBody, String heading) {
+        try {
+            JsonNode root = objectMapper.readTree(mcpResponseBody == null ? "{}" : mcpResponseBody);
+            String status = root.path("status").asText("");
+            if ("error".equalsIgnoreCase(status)) {
+                String msg = root.path("message").asText("Errore MCP");
+                return "Errore dal gestionale: " + msg;
+            }
+            JsonNode data = root.path("data");
+            if (data.isMissingNode())
+                data = root;
+            JsonNode items = data.path("items");
+            if (!items.isArray() || items.size() == 0) {
+                return "Al momento non risultano articoli disponibili per la ricerca richiesta.";
+            }
+
+            StringBuilder sb = new StringBuilder(heading).append("\n");
+            for (int i = 0; i < items.size(); i++) {
+                JsonNode p = items.get(i);
+                String name = safeTxt(p, "name");
+                String desc = safeTxt(p, "description");
+                String price = formatPrice(p.path("priceEur"));
+                String freshness = safeTxt(p, "freshness");
+                String source = safeTxt(p, "source");
+
+                List<String> extra = new ArrayList<>();
+                String originArea = safeTxt(p, "originArea");
+                String faoArea = safeTxt(p, "faoArea");
+                String originCountry = safeTxt(p, "originCountry");
+                if (!originArea.isBlank())
+                    extra.add(originArea);
+                if (!faoArea.isBlank())
+                    extra.add("FAO " + faoArea);
+                if (!originCountry.isBlank())
+                    extra.add(originCountry);
+
+                sb.append("• ").append(name);
+                if (!desc.isBlank())
+                    sb.append(" — ").append(desc);
+                if (!price.isBlank())
+                    sb.append(" — ").append(price).append("/kg");
+
+                List<String> tags = new ArrayList<>();
+                if (freshness.equalsIgnoreCase("FRESH"))
+                    tags.add("fresco");
+                if (freshness.equalsIgnoreCase("FROZEN"))
+                    tags.add("surgelato");
+                if (source.equalsIgnoreCase("WILD_CAUGHT"))
+                    tags.add("pescato");
+                if (source.equalsIgnoreCase("FARMED"))
+                    tags.add("allevato");
+                if (!tags.isEmpty())
+                    sb.append(" (").append(String.join(", ", tags)).append(")");
+
+                if (!extra.isEmpty())
+                    sb.append(" — ").append(String.join(", ", extra));
+                sb.append("\n");
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            return "Errore nel parsing della risposta dal gestionale.";
+        }
     }
 
 }
