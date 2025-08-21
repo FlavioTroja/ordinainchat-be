@@ -62,8 +62,10 @@ public class OpenAiServiceImpl implements OpenAiService {
             ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
 
             String body = response.getBody();
-            log.info("Risposta OpenAI: {}", body);
-
+            if (body == null || body.isEmpty()) {
+                log.error("OpenAI API returned empty response");
+                return "❌ OpenAI API returned an empty response.";
+            }
             JSONObject obj = new JSONObject(body);
             return obj.getJSONArray("choices")
                     .getJSONObject(0)

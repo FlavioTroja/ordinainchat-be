@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -34,6 +36,8 @@ import it.overzoom.ordinainchat.service.UserService;
 @RestController
 @RequestMapping("/telegram")
 public class TelegramWebhookController {
+
+    private final Logger logger = LoggerFactory.getLogger(TelegramWebhookController.class);
 
     @org.springframework.beans.factory.annotation.Value("${mcp.server.base-url:http://localhost:5000/api/mcp}")
     private String mcpBaseUrl;
@@ -64,16 +68,20 @@ public class TelegramWebhookController {
         String telegramUserId = String.valueOf(((Map<String, Object>) message.get("from")).get("id"));
 
         // 1) upsert User
+        logger.info("Received message from Telegram user {}: {}", telegramUserId, text);
         User user = userService.findByTelegramUserId(telegramUserId)
                 .orElseGet(() -> userService.createWithTelegramId(telegramUserId));
 
         // 2) ensure Conversation
+        logger.info("Ensuring conversation for chatId: {}, telegramUserId: {}, user: {}", chatId, telegramUserId, user);
         Conversation conv = chatHistoryService.ensureConversation(user.getId(), chatId);
 
         // 3) save USER msg
+        logger.info("Saving user message for telegramUserId: {}, user: {}, conv: {}", telegramUserId, user, conv);
         chatHistoryService.append(conv.getId(), Message.Role.USER, text, null, null);
 
         // 4) context
+        logger.info("Building context for telegramUserId: {}", telegramUserId);
         List<Message> context = chatHistoryService.lastMessages(conv.getId(), 12);
         String systemPrompt = promptLoader.loadSystemPrompt(user.getId());
 
@@ -85,11 +93,13 @@ public class TelegramWebhookController {
         try {
             // proviamo a leggere un JSON azione in stile MCP
             JsonNode node = safeParseAction(raw);
+            logger.info("Raw response: {}, Parsed node: {}", raw, node);
             if (node != null && node.hasNonNull("tool")) {
                 String tool = node.get("tool").asText("");
                 JsonNode modelArgs = node.path("arguments");
                 switch (tool.toLowerCase(java.util.Locale.ITALY)) {
                     case "greeting", "hello", "hi" -> {
+                        logger.info("Responding to greeting for telegramUserId: {}", telegramUserId);
                         rispostaFinale = "Ciao! 👋 Posso dirti cosa c’è di fresco o in offerta, i prezzi al kg, oppure creare un ordine.";
                     }
                     case "help" -> {
@@ -104,8 +114,11 @@ public class TelegramWebhookController {
                         payload.set("arguments", args);
                         payload.set("meta", meta);
 
+                        logger.info("Calling MCP for products search with payload: {}", payload);
                         String mcpBody = callMcp(payload);
+                        logger.info("MCP response: {}", mcpBody);
                         rispostaFinale = renderProductsSearchReply(mcpBody);
+                        logger.info("Final response for products search: {}", rispostaFinale);
                     }
                     default -> {
                         rispostaFinale = "Ciao! Posso aiutarti con prodotti, offerte, prezzi o creare un ordine. Dimmi pure.";
@@ -113,9 +126,11 @@ public class TelegramWebhookController {
                 }
             } else {
                 // non è JSON MCP → testo libero
+                logger.info("Non-JSON MCP response for telegramUserId: {}", telegramUserId);
                 rispostaFinale = raw;
             }
         } catch (Exception e) {
+            logger.error("Error processing message for telegramUserId: {}", telegramUserId, e);
             rispostaFinale = raw;
         }
 
