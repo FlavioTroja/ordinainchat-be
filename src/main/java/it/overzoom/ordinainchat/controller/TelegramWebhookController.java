@@ -1,5 +1,6 @@
 package it.overzoom.ordinainchat.controller;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -64,6 +65,7 @@ public class TelegramWebhookController {
         this.mcpService = mcpService;
     }
 
+    private final Map<Long, String> productNameCache = new ConcurrentHashMap<>();
     private final Map<String, String> pendingProductByChat = new ConcurrentHashMap<>();
     private static final Pattern TOOL_JSON = Pattern.compile("\\{\\s*\"tool\"\\s*:\\s*\"[^\"]+\"[\\s\\S]*?\\}",
             Pattern.MULTILINE);
@@ -106,8 +108,12 @@ public class TelegramWebhookController {
                 }
             }
             // 0) Tentativo locale: quantità?
-            java.math.BigDecimal parsedQty = parseQuantityKg(text);
+            BigDecimal parsedQty = parseQuantityKg(text);
             if (parsedQty != null) {
+                String guessedFromText = chatHelperService.guessProductNameFromText(text.toLowerCase(Locale.ITALY));
+                if (guessedFromText != null) {
+                    pendingProductByChat.put(chatId, guessedFromText);
+                }
                 String handled = maybeHandleQuantityReply(chatId, telegramUserId, parsedQty.toPlainString(), context);
                 if (handled != null) {
                     rispostaFinale = handled;
@@ -152,20 +158,16 @@ public class TelegramWebhookController {
                         logger.info("Final response for products search: {}", rispostaFinale);
                     }
                     case "orders_create" -> {
-                        // Completa i meta con telegramUserId se mancano
                         ObjectNode payload = objectMapper.createObjectNode();
                         payload.put("tool", "orders_create");
-                        ObjectNode args = (ObjectNode) modelArgs; // fiducia al modello qui, altrimenti valida
+                        ObjectNode args = (ObjectNode) modelArgs;
                         ObjectNode meta = objectMapper.createObjectNode();
                         meta.put("telegramUserId", telegramUserId);
                         payload.set("arguments", args);
                         payload.set("meta", meta);
 
-                        logger.info("Calling MCP for orders_create with payload: {}", payload);
                         String mcpBody = mcpService.callMcp(payload);
-                        logger.info("MCP response (orders_create): {}", mcpBody);
-
-                        rispostaFinale = renderOrderConfirmation(mcpBody, args);
+                        rispostaFinale = renderOrderConfirmation(mcpBody, args, telegramUserId); // <-- cambia firma
                     }
                     case "products_byid", "product_by_id" -> {
                         ObjectNode payload = objectMapper.createObjectNode();
@@ -178,7 +180,6 @@ public class TelegramWebhookController {
                         String mcpBody = mcpService.callMcp(payload);
                         rispostaFinale = renderProductDetailReply(mcpBody);
                     }
-
                     case "customers_me" -> {
                         ObjectNode payload = objectMapper.createObjectNode();
                         payload.put("tool", "customers_me");
@@ -200,8 +201,13 @@ public class TelegramWebhookController {
                 String lower = (text == null ? "" : text.toLowerCase(Locale.ITALY));
 
                 // 1) Se l’utente ha risposto con un numero → prova a trattarlo come kg
-                parsedQty = parseQuantityKg(text); // usa 'text' originale, non 'lower'
+                parsedQty = parseQuantityKg(lower); // usa 'text' originale, non 'lower'
                 if (parsedQty != null) {
+                    String guessedFromText = chatHelperService.guessProductNameFromText(
+                            lower.toLowerCase(Locale.ITALY));
+                    if (guessedFromText != null) {
+                        pendingProductByChat.put(chatId, guessedFromText);
+                    }
                     String handled = maybeHandleQuantityReply(chatId, telegramUserId, parsedQty.toPlainString(),
                             context);
                     if (handled != null) {
@@ -362,7 +368,11 @@ public class TelegramWebhookController {
             StringBuilder sb = new StringBuilder("Ecco le offerte disponibili:\n");
             for (int i = 0; i < items.size(); i++) {
                 JsonNode p = items.get(i);
+                long id = p.path("id").asLong(0L);
                 String name = safeTxt(p, "name");
+                if (id > 0 && !name.isBlank()) {
+                    productNameCache.put(id, name.trim().replaceAll("\\s+", " "));
+                }
                 String desc = safeTxt(p, "description");
                 String price = formatPrice(p.path("priceEur"));
                 String freshness = safeTxt(p, "freshness"); // FRESH/FROZEN
@@ -560,7 +570,13 @@ public class TelegramWebhookController {
             StringBuilder sb = new StringBuilder(heading).append("\n");
             for (int i = 0; i < items.size(); i++) {
                 JsonNode p = items.get(i);
+
+                long id = p.path("id").asLong(0L);
                 String name = safeTxt(p, "name");
+                if (id > 0 && !name.isBlank()) {
+                    productNameCache.put(id, name);
+                }
+
                 String desc = safeTxt(p, "description");
                 String price = formatPrice(p.path("priceEur"));
                 String freshness = safeTxt(p, "freshness");
@@ -758,9 +774,17 @@ public class TelegramWebhookController {
                 // non trovato
                 return "Non riesco a trovare \"" + productName + "\" adesso. Vuoi che cerchi un’alternativa?";
             }
-            long productId = items.get(0).path("id").asLong(0L);
-            if (productId <= 0)
+            JsonNode best = pickBestMatch(items, productName);
+            long productId = (best == null) ? 0L : best.path("id").asLong(0L);
+            if (productId <= 0) {
                 return "Ho un problema a identificare l’articolo. Riproviamo con il nome completo.";
+            }
+            String foundName = (best == null) ? "" : safeTxt(best, "name");
+            if (!foundName.isBlank()) {
+                productNameCache.put(productId, foundName.trim().replaceAll("\\s+", " "));
+            } else {
+                productNameCache.put(productId, capitalizeWords(productName));
+            }
 
             // 4) Crea ordine
             ObjectNode orderArgs = objectMapper.createObjectNode();
@@ -813,39 +837,71 @@ public class TelegramWebhookController {
         return out.toString().trim();
     }
 
-    private String renderOrderConfirmation(String mcpResponseBody, ObjectNode argsSent) {
+    private String resolveProductName(long productId, String telegramUserId) {
+        if (productId <= 0)
+            return null;
+
+        // 1) Prova PRIMA a leggere dal gestionale (fonte di verità)
         try {
-            JsonNode root = objectMapper.readTree(mcpResponseBody == null ? "{}" : mcpResponseBody);
-            String status = root.path("status").asText("");
-            if ("error".equalsIgnoreCase(status)) {
-                String msg = root.path("message").asText("Errore MCP");
-                return "Errore nel creare l’ordine: " + msg;
+            ObjectNode args = objectMapper.createObjectNode();
+            args.put("id", productId);
+
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.put("tool", "products_byId");
+            payload.set("arguments", args);
+
+            ObjectNode meta = objectMapper.createObjectNode();
+            if (telegramUserId != null && !telegramUserId.isBlank()) {
+                meta.put("telegramUserId", telegramUserId);
             }
+            payload.set("meta", meta);
 
-            // prova a leggere un orderId/numero
-            String orderId = root.path("data").path("orderId").asText("");
-            if (orderId.isBlank())
-                orderId = root.path("orderId").asText("");
+            String mcpBody = mcpService.callMcp(payload);
+            JsonNode root = objectMapper.readTree(mcpBody == null ? "{}" : mcpBody);
+            JsonNode data = root.path("data");
+            if (data.isMissingNode())
+                data = root;
 
-            // ricava quantità e nome prodotto (se lo avevi in pending, salvalo in locale)
-            StringBuilder itemsTxt = new StringBuilder();
-            JsonNode items = argsSent.path("items");
-            if (items.isArray()) {
-                for (JsonNode it : items) {
-                    String q = it.path("quantityKg").asText("");
-                    String pid = it.path("productId").asText("");
-                    itemsTxt.append(q.replace('.', ',')).append(" kg (ID ").append(pid).append(")").append(", ");
-                }
+            String name = firstNonBlank(
+                    data.path("name").asText(null),
+                    data.path("productName").asText(null),
+                    data.path("title").asText(null),
+                    data.path("label").asText(null));
+
+            if (name != null && !name.isBlank()) {
+                name = name.trim().replaceAll("\\s+", " ");
+                productNameCache.put(productId, name);
+                return name;
+            } else {
+                logger.warn("products_byId non ha restituito un nome per productId={} body={}",
+                        productId, abbreviate(mcpBody, 300));
             }
-            String itemsStr = itemsTxt.length() > 2 ? itemsTxt.substring(0, itemsTxt.length() - 2) : "articoli";
-
-            String base = "Ordine registrato: " + itemsStr + ".";
-            if (!orderId.isBlank())
-                base += " Numero ordine: " + orderId + ".";
-            return base + " Vuoi aggiungere altro o passo a ritiro/consegna?";
-        } catch (Exception e) {
-            return "Ordine ricevuto. Vuoi aggiungere altro o passo a ritiro/consegna?";
+        } catch (Exception ex) {
+            logger.warn("Errore in resolveProductName per productId={}", productId, ex);
         }
+
+        // 2) Fallback: cache (può essere stantia, ma meglio di nulla)
+        String cached = productNameCache.get(productId);
+        if (cached != null && !cached.isBlank())
+            return cached;
+
+        return null;
+    }
+
+    private String firstNonBlank(String... vals) {
+        if (vals == null)
+            return null;
+        for (String v : vals) {
+            if (v != null && !v.isBlank())
+                return v;
+        }
+        return null;
+    }
+
+    private String abbreviate(String s, int max) {
+        if (s == null)
+            return "null";
+        return s.length() > max ? s.substring(0, max) + "…" : s;
     }
 
     private String renderProductDetailReply(String mcpResponseBody) {
@@ -906,6 +962,140 @@ public class TelegramWebhookController {
         } catch (Exception e) {
             return "Profilo cliente aggiornato.";
         }
+    }
+
+    private String renderOrderConfirmation(String mcpResponseBody, ObjectNode argsSent, String telegramUserId) {
+        try {
+            JsonNode root = objectMapper.readTree(mcpResponseBody == null ? "{}" : mcpResponseBody);
+            String status = root.path("status").asText("");
+            if ("error".equalsIgnoreCase(status)) {
+                String msg = root.path("message").asText("Errore MCP");
+                return "Errore nel creare l’ordine: " + msg;
+            }
+
+            String orderId = root.path("data").path("orderId").asText("");
+            if (orderId.isBlank())
+                orderId = root.path("orderId").asText("");
+
+            // <<< NEW: indicizzazione veloce di eventuali item con (id,name) nel response
+            Map<Long, String> namesFromOrder = new HashMap<>();
+            JsonNode dataItems = root.path("data").path("items");
+            if (dataItems.isArray()) {
+                for (JsonNode it : dataItems) {
+                    long pid = it.path("productId").asLong(0L);
+                    String n = firstNonBlank(
+                            it.path("name").asText(null),
+                            it.path("productName").asText(null),
+                            it.path("title").asText(null));
+                    if (pid > 0 && n != null && !n.isBlank()) {
+                        n = n.trim().replaceAll("\\s+", " ");
+                        namesFromOrder.put(pid, n);
+                        productNameCache.put(pid, n); // riempi anche cache
+                    }
+                }
+            }
+            // >>>
+
+            StringBuilder itemsTxt = new StringBuilder();
+            JsonNode items = argsSent.path("items");
+            if (items.isArray()) {
+                for (JsonNode it : items) {
+                    long pid = it.path("productId").asLong(0L);
+                    String qty = it.path("quantityKg").asText("").replace('.', ',');
+
+                    // 1) preferisci nome già nel body dell’ordine
+                    String name = namesFromOrder.get(pid);
+                    // 2) poi prova MCP products_byId (resolveProductName)
+                    if (name == null || name.isBlank()) {
+                        name = resolveProductName(pid, telegramUserId);
+                    }
+                    // 3) ultimo tentativo: cache (già usata dentro resolve) o fallback
+                    if (name == null || name.isBlank())
+                        name = "articolo";
+
+                    if (itemsTxt.length() > 0)
+                        itemsTxt.append(", ");
+                    itemsTxt.append(qty).append(" kg di ").append(capitalizeWords(name));
+                }
+            }
+
+            String base = "Ordine registrato: " + (itemsTxt.length() == 0 ? "articoli" : itemsTxt.toString()) + ".";
+            if (!orderId.isBlank())
+                base += " Numero ordine: " + orderId + ".";
+            return base + " Vuoi aggiungere altro o passo a ritiro/consegna?";
+        } catch (Exception e) {
+            return "Ordine ricevuto. Vuoi aggiungere altro o passo a ritiro/consegna?";
+        }
+    }
+
+    // Normalizza stringhe: minuscole, niente accenti, solo lettere/numeri/spazi,
+    // spazi compatti
+    private String normalize(String s) {
+        if (s == null)
+            return "";
+        String n = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", ""); // rimuovi diacritici
+        n = n.toLowerCase(Locale.ITALY).replaceAll("[^\\p{L}\\p{N}\\s]", " ").replaceAll("\\s+", " ").trim();
+        return n;
+    }
+
+    // tokenizza semplice
+    private java.util.Set<String> tokens(String s) {
+        String n = normalize(s);
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        for (String t : n.split("\\s+")) {
+            if (!t.isBlank())
+                out.add(t);
+        }
+        return out;
+    }
+
+    // punteggio di similarità: exact=1.0; tutti i token contenuti=0.9; Jaccard
+    // token set; fallback contiene=0.4
+    private double similarity(String candidateName, String desiredName) {
+        String c = normalize(candidateName);
+        String d = normalize(desiredName);
+        if (c.equals(d))
+            return 1.0;
+
+        java.util.Set<String> ct = tokens(c);
+        java.util.Set<String> dt = tokens(d);
+
+        if (!dt.isEmpty() && ct.containsAll(dt))
+            return 0.9;
+
+        java.util.Set<String> inter = new java.util.HashSet<>(ct);
+        inter.retainAll(dt);
+        java.util.Set<String> union = new java.util.HashSet<>(ct);
+        union.addAll(dt);
+        double j = union.isEmpty() ? 0.0 : ((double) inter.size()) / union.size();
+        if (j > 0)
+            return 0.5 + 0.4 * j; // max ~0.9
+
+        if (c.contains(d) || d.contains(c))
+            return 0.4;
+        return 0.0;
+    }
+
+    // sceglie il JsonNode con similarity più alta; opzionale: soglia minima
+    private JsonNode pickBestMatch(JsonNode items, String desiredName) {
+        double bestScore = -1.0;
+        JsonNode best = null;
+        for (JsonNode p : items) {
+            String name = safeTxt(p, "name");
+            if (name.isBlank())
+                continue;
+            double s = similarity(name, desiredName);
+            if (s > bestScore) {
+                bestScore = s;
+                best = p;
+            }
+            // short-circuit se exact match
+            if (s >= 0.999)
+                return p;
+        }
+        // (opzionale) se score troppo basso, potresti chiedere conferma all’utente
+        return best;
     }
 
 }
