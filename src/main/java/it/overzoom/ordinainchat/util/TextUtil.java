@@ -7,6 +7,12 @@ import java.util.regex.Pattern;
 
 public class TextUtil {
 
+    public static String toPlainText(String s) {
+        if (s == null)
+            return "";
+        return s.replace("*", "").replace("_", "").replace("`", "").trim();
+    }
+
     private String guessProductNameFromText(String raw) {
         if (raw == null)
             return null;

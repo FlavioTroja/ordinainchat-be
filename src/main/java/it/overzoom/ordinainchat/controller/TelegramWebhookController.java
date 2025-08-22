@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +36,7 @@ import it.overzoom.ordinainchat.service.OpenAiService;
 import it.overzoom.ordinainchat.service.OpenAiService.ChatMessage;
 import it.overzoom.ordinainchat.service.PromptLoader;
 import it.overzoom.ordinainchat.service.UserService;
+import it.overzoom.ordinainchat.util.TextUtil;
 
 @RestController
 @RequestMapping("/telegram")
@@ -62,6 +65,8 @@ public class TelegramWebhookController {
     }
 
     private final Map<String, String> pendingProductByChat = new ConcurrentHashMap<>();
+    private static final Pattern TOOL_JSON = Pattern.compile("\\{\\s*\"tool\"\\s*:\\s*\"[^\"]+\"[\\s\\S]*?\\}",
+            Pattern.MULTILINE);
 
     @PostMapping("/webhook")
     public ResponseEntity<String> onUpdate(@RequestBody Map<String, Object> update) {
@@ -100,9 +105,26 @@ public class TelegramWebhookController {
                     pendingProductByChat.put(chatId, guessed);
                 }
             }
+            // 0) Tentativo locale: quantità?
+            java.math.BigDecimal parsedQty = parseQuantityKg(text);
+            if (parsedQty != null) {
+                String handled = maybeHandleQuantityReply(chatId, telegramUserId, parsedQty.toPlainString(), context);
+                if (handled != null) {
+                    rispostaFinale = handled;
+                    // salva+invia+return
+                    chatHistoryService.append(conv.getId(), Message.Role.ASSISTANT, rispostaFinale,
+                            System.getenv("OPENAI_MODEL"), null);
+                    rispostaFinale = TextUtil.toPlainText(rispostaFinale);
+                    sendMessageToTelegram(chatId, rispostaFinale);
+                    return ResponseEntity.ok("OK");
+                }
+            }
             // proviamo a leggere un JSON azione in stile MCP
             JsonNode node = safeParseAction(raw);
-            logger.info("Raw response: {}, Parsed node: {}", raw, node);
+            logger.info("Raw startsWith: {}", raw == null ? "null" : raw.substring(0, Math.min(80, raw.length())));
+            logger.info("Parsed node isNull? {}, has tool? {}", node == null,
+                    (node != null && node.hasNonNull("tool")));
+
             if (node != null && node.hasNonNull("tool")) {
                 String tool = node.get("tool").asText("");
                 JsonNode modelArgs = node.path("arguments");
@@ -129,8 +151,48 @@ public class TelegramWebhookController {
                         rispostaFinale = renderProductsSearchReply(mcpBody);
                         logger.info("Final response for products search: {}", rispostaFinale);
                     }
+                    case "orders_create" -> {
+                        // Completa i meta con telegramUserId se mancano
+                        ObjectNode payload = objectMapper.createObjectNode();
+                        payload.put("tool", "orders_create");
+                        ObjectNode args = (ObjectNode) modelArgs; // fiducia al modello qui, altrimenti valida
+                        ObjectNode meta = objectMapper.createObjectNode();
+                        meta.put("telegramUserId", telegramUserId);
+                        payload.set("arguments", args);
+                        payload.set("meta", meta);
+
+                        logger.info("Calling MCP for orders_create with payload: {}", payload);
+                        String mcpBody = mcpService.callMcp(payload);
+                        logger.info("MCP response (orders_create): {}", mcpBody);
+
+                        rispostaFinale = renderOrderConfirmation(mcpBody, args);
+                    }
+                    case "products_byid", "product_by_id" -> {
+                        ObjectNode payload = objectMapper.createObjectNode();
+                        payload.put("tool", "products_byId");
+                        payload.set("arguments", (ObjectNode) modelArgs);
+                        ObjectNode meta = objectMapper.createObjectNode();
+                        meta.put("telegramUserId", telegramUserId);
+                        payload.set("meta", meta);
+
+                        String mcpBody = mcpService.callMcp(payload);
+                        rispostaFinale = renderProductDetailReply(mcpBody);
+                    }
+
+                    case "customers_me" -> {
+                        ObjectNode payload = objectMapper.createObjectNode();
+                        payload.put("tool", "customers_me");
+                        payload.set("arguments", (ObjectNode) modelArgs);
+                        ObjectNode meta = objectMapper.createObjectNode();
+                        meta.put("telegramUserId", telegramUserId);
+                        payload.set("meta", meta);
+
+                        String mcpBody = mcpService.callMcp(payload);
+                        rispostaFinale = renderCustomerReply(mcpBody);
+                    }
                     default -> {
-                        rispostaFinale = "Ciao! Posso aiutarti con prodotti, offerte, prezzi o creare un ordine. Dimmi pure.";
+                        rispostaFinale = (raw != null && !raw.isBlank()) ? raw
+                                : "Dimmi pure come posso aiutarti (offerte, prezzi, disponibilità o ordini).";
                     }
                 }
             } else {
@@ -138,24 +200,20 @@ public class TelegramWebhookController {
                 String lower = (text == null ? "" : text.toLowerCase(Locale.ITALY));
 
                 // 1) Se l’utente ha risposto con un numero → prova a trattarlo come kg
-                if (isNumericQuantity(lower)) {
-                    String qtyStr = lower.replace(",", ".").trim();
-                    String handled = maybeHandleQuantityReply(chatId, telegramUserId, qtyStr, context);
+                parsedQty = parseQuantityKg(text); // usa 'text' originale, non 'lower'
+                if (parsedQty != null) {
+                    String handled = maybeHandleQuantityReply(chatId, telegramUserId, parsedQty.toPlainString(),
+                            context);
                     if (handled != null) {
                         rispostaFinale = handled;
                     } else {
-                        // Non sono riuscito a capire il prodotto → chiedi quale articolo
-                        rispostaFinale = "Ok, " + qtyStr + " kg. Per quale articolo li desideri?";
+                        rispostaFinale = "Ok, " + parsedQty.toPlainString().replace('.', ',')
+                                + " kg. Per quale articolo li desideri?";
                     }
                 } else {
-                    // 2) Altrimenti, prova intent impliciti (fresco/offerte/locale)
+                    // intent impliciti...
                     String forced = maybeHandleImplicitIntents(lower, telegramUserId);
-                    if (forced != null) {
-                        rispostaFinale = forced;
-                    } else {
-                        // 3) Niente di speciale: mostra il testo così com’è
-                        rispostaFinale = raw;
-                    }
+                    rispostaFinale = (forced != null) ? forced : raw;
                 }
             }
         } catch (Exception e) {
@@ -166,6 +224,7 @@ public class TelegramWebhookController {
         // 8) save ASSISTANT + send
         chatHistoryService.append(conv.getId(), Message.Role.ASSISTANT, rispostaFinale, System.getenv("OPENAI_MODEL"),
                 null);
+        rispostaFinale = TextUtil.toPlainText(rispostaFinale);
         sendMessageToTelegram(chatId, rispostaFinale);
         return ResponseEntity.ok("OK");
     }
@@ -386,22 +445,20 @@ public class TelegramWebhookController {
         }
 
         // 2) Se non è puro JSON, prova a cercare un blocco che inizi con {"tool":
-        int idx = s.indexOf("{\"tool\"");
-        if (idx >= 0) {
-            // trova la fine dell’oggetto bilanciando le graffe
-            int end = findMatchingBraceEnd(s, idx);
-            if (end > idx) {
-                String jsonSlice = s.substring(idx, end + 1);
-                try {
-                    return objectMapper.readTree(jsonSlice);
-                } catch (Exception ignore) {
-                    // continua con tentativi successivi
-                }
+        Matcher m = TOOL_JSON.matcher(s);
+        if (m.find()) {
+            try {
+                String jsonSlice = m.group();
+                return objectMapper.readTree(jsonSlice);
+            } catch (Exception ignore) {
+                // continua con tentativi successivi
             }
         }
 
         // 3) Tentativo “normale”
-        try {
+        try
+
+        {
             return objectMapper.readTree(s);
         } catch (Exception e) {
             return null; // il chiamante deciderà il fallback
@@ -548,11 +605,78 @@ public class TelegramWebhookController {
         }
     }
 
-    private boolean isNumericQuantity(String s) {
+    // Sostituisci isNumericQuantity + gestione con questo
+    private java.math.BigDecimal parseQuantityKg(String s) {
         if (s == null)
-            return false;
-        // accetta "2", "2.0", "2,5"
-        return s.matches("\\d+(?:[\\.,]\\d+)?");
+            return null;
+        String t = s.toLowerCase(Locale.ITALY).trim();
+
+        // Normalizza spazi e punteggiatura leggera
+        t = t.replaceAll("[^\\p{L}\\p{N}\\s\\.,/]", " ").replaceAll("\\s+", " ").trim();
+
+        // Parole comuni → numeri
+        t = t.replace("mezzo", "0,5")
+                .replace("mezza", "0,5")
+                .replace("un chilo", "1")
+                .replace("uno chilo", "1")
+                .replace("un kilo", "1")
+                .replace("uno kilo", "1")
+                .replace("un mezzo", "0,5")
+                .replace("mezzetto", "0,5");
+
+        // Fractions (es. 1/2, 3/4)
+        java.util.regex.Matcher frac = java.util.regex.Pattern
+                .compile("(\\d+)\\s*/\\s*(\\d+)")
+                .matcher(t);
+        if (frac.find()) {
+            try {
+                java.math.BigDecimal num = new java.math.BigDecimal(frac.group(1));
+                java.math.BigDecimal den = new java.math.BigDecimal(frac.group(2));
+                java.math.BigDecimal val = num.divide(den, 3, java.math.RoundingMode.HALF_UP);
+                // Sostituisci la frazione con il valore decimale per riuso sotto
+                t = frac.replaceFirst(val.toPlainString().replace('.', ','));
+            } catch (Exception ignore) {
+            }
+        }
+
+        // Estrai il primo numero (con , o . decimale)
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(\\d+(?:[\\.,]\\d+)?)")
+                .matcher(t);
+        if (!m.find())
+            return null;
+
+        String numStr = m.group(1).replace('.', ',');
+        java.math.BigDecimal qty;
+        try {
+            qty = new java.math.BigDecimal(numStr.replace(',', '.'));
+        } catch (Exception e) {
+            return null;
+        }
+
+        // Determina unità (default kg)
+        boolean hasKg = t.contains("kg") || t.contains("chilo") || t.contains("kilo") || t.contains("chili")
+                || t.contains("kili");
+        boolean hasEtti = t.contains("etto") || t.contains("etti") || t.contains("hg");
+        boolean hasGrammi = t.contains("grammi") || t.contains("gr") || t.contains("g");
+
+        if (hasEtti) {
+            // 1 etto = 0.1 kg → se l’utente scrive "3 etti" e il numero estratto è 3 → 0.3
+            // kg
+            qty = qty.multiply(new java.math.BigDecimal("0.1"));
+        } else if (hasGrammi) {
+            // 100 g = 0.1 kg
+            qty = qty.divide(new java.math.BigDecimal("1000"), 3, java.math.RoundingMode.HALF_UP);
+        } else if (!hasKg) {
+            // Nessuna unità esplicita → assumi kg
+        }
+
+        // clamp > 0
+        if (qty.compareTo(java.math.BigDecimal.ZERO) <= 0)
+            return null;
+
+        // Arrotonda a 3 decimali max (per sicurezza)
+        return qty.setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros();
     }
 
     // Prova a dedurre il nome prodotto dal contesto recente
@@ -687,6 +811,101 @@ public class TelegramWebhookController {
                     .append(" ");
         }
         return out.toString().trim();
+    }
+
+    private String renderOrderConfirmation(String mcpResponseBody, ObjectNode argsSent) {
+        try {
+            JsonNode root = objectMapper.readTree(mcpResponseBody == null ? "{}" : mcpResponseBody);
+            String status = root.path("status").asText("");
+            if ("error".equalsIgnoreCase(status)) {
+                String msg = root.path("message").asText("Errore MCP");
+                return "Errore nel creare l’ordine: " + msg;
+            }
+
+            // prova a leggere un orderId/numero
+            String orderId = root.path("data").path("orderId").asText("");
+            if (orderId.isBlank())
+                orderId = root.path("orderId").asText("");
+
+            // ricava quantità e nome prodotto (se lo avevi in pending, salvalo in locale)
+            StringBuilder itemsTxt = new StringBuilder();
+            JsonNode items = argsSent.path("items");
+            if (items.isArray()) {
+                for (JsonNode it : items) {
+                    String q = it.path("quantityKg").asText("");
+                    String pid = it.path("productId").asText("");
+                    itemsTxt.append(q.replace('.', ',')).append(" kg (ID ").append(pid).append(")").append(", ");
+                }
+            }
+            String itemsStr = itemsTxt.length() > 2 ? itemsTxt.substring(0, itemsTxt.length() - 2) : "articoli";
+
+            String base = "Ordine registrato: " + itemsStr + ".";
+            if (!orderId.isBlank())
+                base += " Numero ordine: " + orderId + ".";
+            return base + " Vuoi aggiungere altro o passo a ritiro/consegna?";
+        } catch (Exception e) {
+            return "Ordine ricevuto. Vuoi aggiungere altro o passo a ritiro/consegna?";
+        }
+    }
+
+    private String renderProductDetailReply(String mcpResponseBody) {
+        try {
+            JsonNode root = objectMapper.readTree(mcpResponseBody == null ? "{}" : mcpResponseBody);
+            JsonNode d = root.path("data");
+            if (d.isMissingNode())
+                d = root;
+            String name = d.path("name").asText("");
+            String price = d.path("priceEur").asText("");
+            String freshness = d.path("freshness").asText("");
+            String source = d.path("source").asText("");
+            String origin = d.path("originArea").asText("");
+            StringBuilder sb = new StringBuilder();
+            if (!name.isBlank())
+                sb.append(name);
+            if (!price.isBlank())
+                sb.append(" — € ").append(price.replace('.', ',')).append("/kg");
+            if (!freshness.isBlank() || !source.isBlank()) {
+                sb.append(" (");
+                if ("FRESH".equalsIgnoreCase(freshness))
+                    sb.append("fresco");
+                else if ("FROZEN".equalsIgnoreCase(freshness))
+                    sb.append("surgelato");
+                if (!source.isBlank()) {
+                    if (sb.charAt(sb.length() - 1) != '(')
+                        sb.append(", ");
+                    sb.append("pescato".equalsIgnoreCase(source) ? "pescato"
+                            : "WILD_CAUGHT".equalsIgnoreCase(source) ? "pescato"
+                                    : "FARMED".equalsIgnoreCase(source) ? "allevato"
+                                            : source.toLowerCase(Locale.ITALY));
+                }
+                sb.append(")");
+            }
+            if (!origin.isBlank())
+                sb.append(" — ").append(origin);
+            String out = sb.toString().trim();
+            return out.isEmpty() ? "Dettaglio prodotto non disponibile." : out;
+        } catch (Exception e) {
+            return "Dettaglio prodotto non disponibile.";
+        }
+    }
+
+    private String renderCustomerReply(String mcpResponseBody) {
+        try {
+            JsonNode root = objectMapper.readTree(mcpResponseBody == null ? "{}" : mcpResponseBody);
+            JsonNode d = root.path("data");
+            if (d.isMissingNode())
+                d = root;
+            String name = d.path("name").asText("");
+            String phone = d.path("phone").asText("");
+            String out = "Profilo cliente aggiornato.";
+            if (!name.isBlank())
+                out += " Nome: " + name + ".";
+            if (!phone.isBlank())
+                out += " Telefono: " + phone + ".";
+            return out;
+        } catch (Exception e) {
+            return "Profilo cliente aggiornato.";
+        }
     }
 
 }
