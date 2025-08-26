@@ -60,7 +60,7 @@ public class OpenAiServiceImpl implements OpenAiService {
         try {
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
             ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-
+            log.info("OpenAI API response: {}", response);
             String body = response.getBody();
             if (body == null || body.isEmpty()) {
                 log.error("OpenAI API returned empty response");
