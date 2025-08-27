@@ -1,11 +1,9 @@
 package it.overzoom.ordinainchat.controller;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +26,7 @@ import it.overzoom.ordinainchat.service.OpenAiService;
 import it.overzoom.ordinainchat.service.OpenAiService.ChatMessage;
 import it.overzoom.ordinainchat.service.PromptLoader;
 import it.overzoom.ordinainchat.service.UserService;
+import it.overzoom.ordinainchat.util.TextUtils;
 
 @RestController
 @RequestMapping("/telegram")
@@ -57,52 +56,53 @@ public class TelegramWebhookController {
         log.info("Received Telegram update: {}", update);
         Map<String, Object> message = (Map<String, Object>) update.get("message");
         String text = (String) message.get("text");
-        String chatId = String.valueOf(((Map<String, Object>) message.get("chat")).get("id"));
-        String telegramUserId = String.valueOf(((Map<String, Object>) message.get("from")).get("id"));
+        Map<String, Object> chat = (Map<String, Object>) message.get("chat");
+        Map<String, Object> from = (Map<String, Object>) message.get("from");
+        String chatType = String.valueOf(chat.get("type")); // "private", "group", ...
+        String telegramUserId = String.valueOf(from.get("id"));
+        log.info("TG ids: chat.id={}, from.id={}, type={}", chat.get("id"), from.get("id"), chatType);
+        // Per private chat usiamo SEMPRE from.id come chiave
+        String chatKey = "private".equals(chatType)
+                ? String.valueOf(from.get("id"))
+                : String.valueOf(chat.get("id"));
 
         User user = userService.findByTelegramUserId(telegramUserId)
                 .orElseGet(() -> userService.createWithTelegramId(telegramUserId));
-        Conversation conv = chatHistoryService.ensureConversation(user.getId(), chatId);
-        // chatHistoryService.append(conv.getId(), Message.Role.USER, text, null, null);
+        Conversation conv = chatHistoryService.ensureConversation(user.getId(), chatKey);
+        chatHistoryService.append(conv.getId(), Message.Role.USER, text, null, null);
 
+        // 1) Se NON abbiamo ancora una conversation OpenAI -> creala e bootstrap init
+        if (conv.getOpenAiConversationId() == null || conv.getOpenAiConversationId().isBlank()) {
+            String convId = openAiService.createConversation("OrdinaInChat - " + telegramUserId);
+            String initSystem = promptLoader.loadInitSystemPrompt(user.getId());
+            openAiService.bootstrapConversation(convId, initSystem);
+            conv.setOpenAiConversationId(convId);
+            chatHistoryService.save(conv);
+        }
+
+        // 2) Prepara i messaggi del turno (system dinamico + user)
         List<Message> context = chatHistoryService.lastMessages(conv.getId(), 5);
-        String systemPrompt = promptLoader.loadSystemPrompt(user.getId());
-        List<ChatMessage> chatMessages = buildMessages(systemPrompt, context, text);
-        String raw = openAiService.askChatGpt(chatMessages);
+        // se vuoi uno snippet system per lo stato corrente
+        String dynamicSystem = promptLoader.loadDynamicSystemSnippet(user.getCurrentStep(), text, context);
 
+        List<ChatMessage> turn = new ArrayList<>();
+        if (dynamicSystem != null && !dynamicSystem.isBlank()) {
+            turn.add(new ChatMessage("system", dynamicSystem));
+        }
+        turn.add(new ChatMessage("user", text));
+
+        // 3) Chiamata Responses API nella conversation
+        String raw = openAiService.askInConversation(conv.getOpenAiConversationId(), turn, true);
+
+        // 4) Passa al flow
         String rispostaFinale = chatFlow.handle(
-                text,
-                raw,
-                chatId,
-                telegramUserId,
-                context,
-                guessed -> {
-                    /* pendingProductByChat.put(chatId, guessed); se vuoi mantenerlo qui */ });
+                text, raw, chatKey, telegramUserId, context, guessed -> {
+                });
 
         chatHistoryService.append(conv.getId(), Message.Role.ASSISTANT, rispostaFinale,
                 System.getenv("OPENAI_MODEL"), null);
-        // sendMessageToTelegram(chatId, TextUtils.toPlainText(rispostaFinale));
+        sendMessageToTelegram(chatKey, TextUtils.toPlainText(rispostaFinale));
         return ResponseEntity.ok(rispostaFinale);
-    }
-
-    private List<OpenAiService.ChatMessage> buildMessages(String system, List<Message> ctx, String text) {
-        List<Message> ordered = new ArrayList<>(ctx);
-        ordered.sort(Comparator.comparing(Message::getCreatedAt));
-        List<OpenAiService.ChatMessage> out = new ArrayList<>();
-        out.add(new OpenAiService.ChatMessage("system", system));
-        if (!ordered.isEmpty())
-            out.add(new OpenAiService.ChatMessage("system",
-                    "Basa la risposta all'utente sulla seguente cronologia ordinata in modo crescente di messaggi:"
-                            + ordered.stream().map(m -> {
-                                return (m.getRole() == Message.Role.ASSISTANT) ? "assistant: "
-                                        : "user: " + m.getContent();
-                            }).collect(Collectors.joining("\n"))));
-        // for (Message m : ordered) {
-        // String role = (m.getRole() == Message.Role.ASSISTANT) ? "assistant" : "user";
-        // out.add(new OpenAiService.ChatMessage(role, m.getContent()));
-        // }
-        out.add(new OpenAiService.ChatMessage("user", text));
-        return out;
     }
 
     private void sendMessageToTelegram(String chatId, String messaggio) {

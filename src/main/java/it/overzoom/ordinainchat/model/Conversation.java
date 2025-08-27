@@ -27,6 +27,9 @@ public class Conversation extends BaseEntity {
     @Column(name = "title")
     private String title;
 
+    @Column(name = "openai_conversation_id", length = 128, unique = false)
+    private String openaiConversationId;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private java.util.Map<String, Object> metadata;
@@ -84,5 +87,13 @@ public class Conversation extends BaseEntity {
 
     public void setLastActivityAt(OffsetDateTime lastActivityAt) {
         this.lastActivityAt = lastActivityAt;
+    }
+
+    public String getOpenAiConversationId() {
+        return openaiConversationId;
+    }
+
+    public void setOpenAiConversationId(String openaiConversationId) {
+        this.openaiConversationId = openaiConversationId;
     }
 }

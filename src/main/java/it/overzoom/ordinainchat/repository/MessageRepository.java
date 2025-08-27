@@ -8,7 +8,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import it.overzoom.ordinainchat.model.Message;
 
 public interface MessageRepository extends JpaRepository<Message, UUID> {
-    List<Message> findTop50ByConversationIdOrderByCreatedAtDesc(UUID conversationId); // ultimi 50
-
-    List<Message> findByConversationIdOrderByCreatedAtAsc(UUID conversationId);
+    List<Message> findTop50ByConversationIdOrderByCreatedAtDesc(UUID conversationId);
 }

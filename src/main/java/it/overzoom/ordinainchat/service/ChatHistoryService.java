@@ -11,7 +11,9 @@ public interface ChatHistoryService {
 
     Conversation ensureConversation(UUID userId, String chatId);
 
-    Message append(UUID conversationId, Role role, String content, String model, Integer tokens);
+    void append(UUID conversationId, Role role, String content, String model, Integer tokens);
 
     List<Message> lastMessages(UUID conversationId, int max);
+
+    void save(Conversation conv);
 }

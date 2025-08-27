@@ -53,7 +53,11 @@ public class ChatFlowService {
                 JsonNode modelArgs = node.path("arguments");
                 switch (tool.toLowerCase(Locale.ITALY)) {
                     case "greeting", "hello", "hi" -> {
-                        return "Ciao! 👋 Posso dirti cosa c’è di fresco o in offerta, i prezzi al kg, oppure creare un ordine.";
+                        // prendi il testo dal JSON (se presente), altrimenti fallback
+                        String msg = JsonUtils.textOrNull(modelArgs, "message");
+                        return (msg != null && !msg.isBlank())
+                                ? msg
+                                : "Ciao! 👋 Posso dirti cosa c’è di fresco o in offerta, i prezzi al kg, oppure creare un ordine.";
                     }
                     case "help" -> {
                         return "Puoi chiedermi, ad esempio:\n• Cosa hai di fresco?\n• Cosa hai in offerta oggi?\n• A quanto vanno le triglie?\n• Le spigole sono surgelate?\n• Vorrei 1,5 kg di cozze per stasera.";
@@ -121,26 +125,8 @@ public class ChatFlowService {
                     }
                 }
             } else {
-                String lower = (text == null ? "" : text.toLowerCase(Locale.ITALY));
-                ObjectNode args = intents.buildProductsSearchArgsFromImplicitIntent(lower);
-                if (args != null) {
-                    ObjectNode payload = om.createObjectNode();
-                    payload.put("tool", "products_search");
-                    payload.set("arguments", args);
-
-                    ObjectNode metaNode = om.createObjectNode();
-                    metaNode.put("telegramUserId", telegramUserId);
-                    payload.set("meta", metaNode);
-
-                    String body = mcp.call(payload);
-                    String heading = intents.headingForImplicitIntent(lower);
-                    try {
-                        products.cacheIdNameMap(products.parseIdNameMap(body));
-                    } catch (Exception ignored) {
-                    }
-                    return render.productsList(body, heading, products::cacheName);
-                }
-                return raw;
+                return (raw != null) ? raw
+                        : "Dimmi pure come posso aiutarti (offerte, prezzi, disponibilità o ordini).";
             }
         } catch (Exception e) {
             return raw;

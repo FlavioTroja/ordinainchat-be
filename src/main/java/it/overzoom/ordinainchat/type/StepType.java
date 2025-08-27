@@ -2,9 +2,9 @@ package it.overzoom.ordinainchat.type;
 
 public enum StepType {
     START,
-    REGISTRAZIONE_NOME,
-    SCELTA_PRODOTTI,
-    AGGIUNGI_CARRELLO,
-    INSERISCI_INDIRIZZO,
-    ORDINA_PRODOTTO,
+    SELECT_PRODUCT,
+    SELECT_QUANTITY,
+    SELECT_ADDONS,
+    CONFIRM_ORDER,
+    POST_ORDER
 }

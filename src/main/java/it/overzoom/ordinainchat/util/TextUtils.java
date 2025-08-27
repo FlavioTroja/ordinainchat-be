@@ -127,4 +127,10 @@ public final class TextUtils {
             return "";
         return s.replace("*", "").replace("_", "").replace("`", "").trim();
     }
+
+    public static boolean isSmallTalk(String lower) {
+        // spazi/limiti parola per evitare falsi positivi
+        return lower.matches(".*\\b(ciao|salve|hey|buongiorno|buonasera)\\b.*")
+                || lower.matches("^\\s*(aiuto|help)\\s*$");
+    }
 }

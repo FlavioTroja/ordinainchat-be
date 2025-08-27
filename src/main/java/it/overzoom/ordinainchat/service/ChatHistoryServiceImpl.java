@@ -1,5 +1,6 @@
 package it.overzoom.ordinainchat.service;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -8,54 +9,60 @@ import org.springframework.transaction.annotation.Transactional;
 
 import it.overzoom.ordinainchat.model.Conversation;
 import it.overzoom.ordinainchat.model.Message;
-import it.overzoom.ordinainchat.model.Message.Role;
 import it.overzoom.ordinainchat.repository.ConversationRepository;
 import it.overzoom.ordinainchat.repository.MessageRepository;
 
 @Service
+@Transactional
 public class ChatHistoryServiceImpl implements ChatHistoryService {
 
-    private final ConversationRepository conversationRepo;
-    private final MessageRepository messageRepo;
+    private final ConversationRepository conversationRepository;
+    private final MessageRepository messageRepository;
 
-    public ChatHistoryServiceImpl(ConversationRepository conversationRepo, MessageRepository messageRepo) {
-        this.conversationRepo = conversationRepo;
-        this.messageRepo = messageRepo;
+    public ChatHistoryServiceImpl(ConversationRepository conversationRepository,
+            MessageRepository messageRepository) {
+        this.conversationRepository = conversationRepository;
+        this.messageRepository = messageRepository;
     }
 
-    @Transactional
-    public Conversation ensureConversation(UUID userId, String chatId) {
-        return conversationRepo.findTopByUserIdAndTelegramChatIdOrderByLastActivityAtDesc(userId, chatId)
+    @Override
+    public Conversation ensureConversation(UUID userId, String chatKey) {
+        return conversationRepository
+                .findFirstByUserIdAndTelegramChatId(userId, chatKey)
                 .orElseGet(() -> {
                     Conversation c = new Conversation();
                     c.setUserId(userId);
-                    c.setTelegramChatId(chatId);
-                    c.setTitle("Telegram chat " + chatId);
-                    return conversationRepo.save(c);
+                    c.setTelegramChatId(chatKey);
+                    c.setTitle("Telegram chat " + chatKey);
+                    // opzionale: set metadata/startedAt ecc. se non gestiti da @PrePersist
+                    return conversationRepository.save(c);
                 });
     }
 
+    @Override
+    public void save(Conversation conv) {
+        conversationRepository.save(conv);
+    }
+
+    @Override
     @Transactional
-    public Message append(UUID conversationId, Role role, String content, String model, Integer tokens) {
+    public void append(UUID conversationId, Message.Role role, String content, String model, Integer tokenCount) {
         Message m = new Message();
         m.setConversationId(conversationId);
         m.setRole(role);
-        m.setContent(content);
+        m.setContent(content == null ? "" : content);
         m.setModel(model);
-        m.setTokenCount(tokens);
-        Message saved = messageRepo.save(m);
-
-        // bump last activity
-        conversationRepo.findById(conversationId).ifPresent(c -> {
-            c.setLastActivityAt(java.time.OffsetDateTime.now());
-            conversationRepo.save(c);
-        });
-        return saved;
+        m.setTokenCount(tokenCount);
+        messageRepository.save(m);
     }
 
+    @Override
     @Transactional(readOnly = true)
-    public List<Message> lastMessages(UUID conversationId, int max) {
-        List<Message> list = messageRepo.findTop50ByConversationIdOrderByCreatedAtDesc(conversationId);
-        return list.size() <= max ? list : list.subList(0, max);
+    public List<Message> lastMessages(UUID conversationId, int limit) {
+        List<Message> desc = messageRepository.findTop50ByConversationIdOrderByCreatedAtDesc(conversationId);
+        Collections.reverse(desc); // da più vecchi a più nuovi
+        if (limit <= 0 || desc.size() <= limit)
+            return desc;
+        return desc.subList(desc.size() - limit, desc.size());
     }
 }
