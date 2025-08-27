@@ -71,11 +71,13 @@ public class ChatFlowService {
                         payload.set("meta", meta);
 
                         String body = mcp.call(payload);
-                        try {
-                            products.cacheIdNameMap(products.parseIdNameMap(body));
-                        } catch (Exception ignored) {
-                        }
-                        return render.productsList(body, "Ecco le offerte disponibili:", products::cacheName);
+
+                        ObjectNode bridge = om.createObjectNode();
+                        bridge.put("bridge_type", "tool_result");
+                        bridge.put("tool", "products_search");
+                        bridge.set("arguments", args);
+                        bridge.set("result", om.readTree(body));
+                        return bridge.toString();
                     }
                     case "orders_create" -> {
                         ObjectNode rawArgs = (ObjectNode) modelArgs;

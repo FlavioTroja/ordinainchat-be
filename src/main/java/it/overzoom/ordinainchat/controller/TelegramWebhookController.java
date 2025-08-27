@@ -99,10 +99,76 @@ public class TelegramWebhookController {
                 text, raw, chatKey, telegramUserId, context, guessed -> {
                 });
 
-        chatHistoryService.append(conv.getId(), Message.Role.ASSISTANT, rispostaFinale,
-                System.getenv("OPENAI_MODEL"), null);
-        sendMessageToTelegram(chatKey, TextUtils.toPlainText(rispostaFinale));
-        return ResponseEntity.ok(rispostaFinale);
+        String finalOut = rispostaFinale;
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode bridge = om.readTree(rispostaFinale);
+            if (bridge.hasNonNull("bridge_type") && "tool_result".equals(bridge.get("bridge_type").asText())) {
+                String tool = bridge.path("tool").asText("");
+                com.fasterxml.jackson.databind.JsonNode args = bridge.path("arguments");
+                com.fasterxml.jackson.databind.JsonNode result = bridge.path("result");
+
+                // 🔁 items corretti: result.data.items
+                com.fasterxml.jackson.databind.JsonNode data = result.path("data");
+                com.fasterxml.jackson.databind.node.ArrayNode items = (com.fasterxml.jackson.databind.node.ArrayNode) data
+                        .path("items");
+
+                // Compact payload per il secondo giro
+                com.fasterxml.jackson.databind.node.ArrayNode compact = om.createArrayNode();
+                if (items != null) {
+                    for (com.fasterxml.jackson.databind.JsonNode it : items) {
+                        com.fasterxml.jackson.databind.node.ObjectNode n = om.createObjectNode();
+                        n.put("id", it.path("id").asLong());
+                        n.put("name", it.path("name").asText(""));
+                        if (it.hasNonNull("priceEur"))
+                            n.put("priceEur", it.get("priceEur").asText());
+                        if (it.hasNonNull("freshness"))
+                            n.put("freshness", it.get("freshness").asText());
+                        if (it.hasNonNull("catchDate"))
+                            n.put("catchDate", it.get("catchDate").asText());
+                        if (it.hasNonNull("source"))
+                            n.put("source", it.get("source").asText());
+                        compact.add(n);
+                    }
+                }
+                com.fasterxml.jackson.databind.node.ObjectNode toolNode = om.createObjectNode();
+                toolNode.put("tool", tool);
+                toolNode.set("arguments", args);
+                toolNode.set("items", compact);
+                String toolSummary = toolNode.toString();
+
+                // Secondo giro nella stessa conversation
+                List<OpenAiService.ChatMessage> followup = new ArrayList<>();
+                followup.add(new OpenAiService.ChatMessage(
+                        "system",
+                        "RISULTATO_TOOL: " + toolSummary + "\n" +
+                                "Istruzione: usa questi dati per rispondere alla domanda dell’utente in modo conciso. "
+                                +
+                                "Se la domanda era sulla freschezza/‘di oggi’, rispondi direttamente (FRESH/FROZEN; ‘di oggi’ se catchDate=oggi, tz Europe/Rome). "
+                                +
+                                "Niente elenco completo a meno che l’utente lo chieda."));
+                // 👉 ribadisco la domanda originale
+                followup.add(new OpenAiService.ChatMessage("user", text));
+
+                String raw2 = openAiService.askInConversation(conv.getOpenAiConversationId(), followup, true);
+                finalOut = raw2; // usa questo come risposta definitiva
+            }
+        } catch (Exception ignore) {
+        }
+
+        // ✅ salva la risposta effettiva
+        chatHistoryService.append(
+                conv.getId(),
+                Message.Role.ASSISTANT,
+                finalOut,
+                System.getenv("OPENAI_MODEL"),
+                null);
+
+        // ✅ invia quella all’utente
+        sendMessageToTelegram(chatKey, TextUtils.toPlainText(finalOut));
+
+        // ✅ ritorna quella
+        return ResponseEntity.ok(finalOut);
     }
 
     private void sendMessageToTelegram(String chatId, String messaggio) {
