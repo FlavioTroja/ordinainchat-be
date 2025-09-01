@@ -146,7 +146,6 @@ public class ChatFlowService {
         if (JsonUtils.boolOr(modelNode, "onlyOnOffer", false))
             args.put("onlyOnOffer", true);
 
-        // 🔹 nuovi: availableOnly, freshFromDate
         if (JsonUtils.boolOr(modelNode, "availableOnly", false))
             args.put("availableOnly", true);
         String ffd = JsonUtils.textOrNull(modelNode, "freshFromDate");
