@@ -19,6 +19,7 @@ public class ProductSearchCriteria {
     private Boolean includePrepared; // includere marinati/pronti?
     private String search; // testo full-text su name/description (opzionale)
     private FreshnessType freshness; // es. FRESH, FROZEN
+    private Boolean availableOnly;
 
     // ordinamento
     private SortType sortType; // es. FRESHNESS_DESC, PRICE_ASC
@@ -94,5 +95,13 @@ public class ProductSearchCriteria {
 
     public void setFreshness(FreshnessType freshness) {
         this.freshness = freshness;
+    }
+
+    public Boolean getAvailableOnly() {
+        return availableOnly;
+    }
+
+    public void setAvailableOnly(Boolean availableOnly) {
+        this.availableOnly = availableOnly;
     }
 }

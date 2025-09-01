@@ -108,6 +108,10 @@ Domande su freschezza / “di oggi”
 • Esegui SEMPRE una ricerca: 
   {"tool":"products_search","arguments":{"textSearch":"<nome prodotto e sinonimi separati da |>","page":0,"size":10},"meta":{"telegramUserId":"<ID TELEGRAM>"}}
   - Non aggiungere altri filtri se non richiesti esplicitamente.
+• Domande “cosa hai sul banco?” o “cosa hai in negozio?” o semplicemente ”cos'hai?”, “stamattina”, “oggi”, “adesso” → chiama:
+{"tool":"products_search",
+ "arguments":{"availableOnly":true,"freshFromDate":"<YYYY-MM-DD>","freshness":"FRESH","page":0,"size":10},
+ "meta":{"telegramUserId":"<id>"}}  
 • Interpreta i risultati:
   - Se trovi SOLO FRESH → rispondi in chiaro: “Sì, sono fresche.” 
     - Se catchDate == oggi (fuso Europa/Roma), puoi dire “Sì, sono di oggi.”

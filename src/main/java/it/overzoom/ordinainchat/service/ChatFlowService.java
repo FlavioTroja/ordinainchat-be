@@ -64,6 +64,7 @@ public class ChatFlowService {
                     }
                     case "products_search" -> {
                         ObjectNode args = sanitizeProductsSearchArgs(modelArgs, text);
+
                         ObjectNode meta = om.createObjectNode().put("telegramUserId", telegramUserId);
                         ObjectNode payload = om.createObjectNode();
                         payload.put("tool", "products_search");
@@ -137,24 +138,38 @@ public class ChatFlowService {
 
     private ObjectNode sanitizeProductsSearchArgs(JsonNode modelNode, String userUtterance) {
         ObjectNode args = om.createObjectNode();
+
         String text = JsonUtils.textOrNull(modelNode, "query", "text", "textSearch");
         if (text != null && !text.isBlank())
             args.put("textSearch", text.trim());
+
         if (JsonUtils.boolOr(modelNode, "onlyOnOffer", false))
             args.put("onlyOnOffer", true);
+
+        // 🔹 nuovi: availableOnly, freshFromDate
+        if (JsonUtils.boolOr(modelNode, "availableOnly", false))
+            args.put("availableOnly", true);
+        String ffd = JsonUtils.textOrNull(modelNode, "freshFromDate");
+        if (ffd != null && ffd.matches("\\d{4}-\\d{2}-\\d{2}"))
+            args.put("freshFromDate", ffd);
+
         String frRaw = JsonUtils.textOrNull(modelNode, "freshness");
         if (frRaw != null) {
             String f = frRaw.trim().toUpperCase(java.util.Locale.ITALY);
             if ("FRESH".equals(f) || "FROZEN".equals(f))
                 args.put("freshness", f);
         }
+
         BigDecimal maxPrice = JsonUtils.decimalOrNull(modelNode, "maxPrice");
         if (maxPrice != null)
             args.put("maxPrice", maxPrice);
+
         int limit = Math.max(1, Math.min(JsonUtils.intOr(modelNode, "limit", 10), 50));
         args.put("page", 0);
         args.put("size", limit);
 
+        // (Facoltativo) filtri “local” derivati dal testo utente: lascia pure, non
+        // interferiscono.
         String u = (userUtterance == null) ? "" : userUtterance.toLowerCase(java.util.Locale.ITALY);
         boolean askLocal = u.contains("locale") || u.contains("puglia") || u.contains("pugliese")
                 || u.contains("adriatico") || u.contains("ionio") || u.contains("italia") || u.contains("italiano");
@@ -169,4 +184,5 @@ public class ChatFlowService {
         }
         return args;
     }
+
 }
