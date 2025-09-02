@@ -16,6 +16,9 @@ import it.overzoom.ordinainchat.util.TextUtils;
 
 @Service
 public class ChatFlowService {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ChatFlowService.class);
+
     private final ObjectMapper om = new ObjectMapper();
     private final IntentService intents;
     private final RenderService render;
@@ -63,6 +66,7 @@ public class ChatFlowService {
                         return "Puoi chiedermi, ad esempio:\n• Cosa hai di fresco?\n• Cosa hai in offerta oggi?\n• A quanto vanno le triglie?\n• Le spigole sono surgelate?\n• Vorrei 1,5 kg di cozze per stasera.";
                     }
                     case "products_search" -> {
+                        log.info("products_search with args: " + modelArgs);
                         ObjectNode args = sanitizeProductsSearchArgs(modelArgs, text);
 
                         ObjectNode meta = om.createObjectNode().put("telegramUserId", telegramUserId);
@@ -143,15 +147,12 @@ public class ChatFlowService {
         if (text != null && !text.isBlank())
             args.put("textSearch", text.trim());
 
-        if (JsonUtils.boolOr(modelNode, "onlyOnOffer", false))
-            args.put("onlyOnOffer", true);
-
-        if (JsonUtils.boolOr(modelNode, "availableOnly", false))
+        // Aggiungere solo il filtro availableOnly se specificato
+        if (JsonUtils.boolOr(modelNode, "availableOnly", false)) {
             args.put("availableOnly", true);
-        String ffd = JsonUtils.textOrNull(modelNode, "freshFromDate");
-        if (ffd != null && ffd.matches("\\d{4}-\\d{2}-\\d{2}"))
-            args.put("freshFromDate", ffd);
+        }
 
+        // Non aggiungere "freshness" se non richiesto esplicitamente
         String frRaw = JsonUtils.textOrNull(modelNode, "freshness");
         if (frRaw != null) {
             String f = frRaw.trim().toUpperCase(java.util.Locale.ITALY);
@@ -159,6 +160,7 @@ public class ChatFlowService {
                 args.put("freshness", f);
         }
 
+        // Resto della logica di gestione dei filtri
         BigDecimal maxPrice = JsonUtils.decimalOrNull(modelNode, "maxPrice");
         if (maxPrice != null)
             args.put("maxPrice", maxPrice);
@@ -167,8 +169,7 @@ public class ChatFlowService {
         args.put("page", 0);
         args.put("size", limit);
 
-        // (Facoltativo) filtri “local” derivati dal testo utente: lascia pure, non
-        // interferiscono.
+        // (Facoltativo) filtri locali derivati dal testo utente
         String u = (userUtterance == null) ? "" : userUtterance.toLowerCase(java.util.Locale.ITALY);
         boolean askLocal = u.contains("locale") || u.contains("puglia") || u.contains("pugliese")
                 || u.contains("adriatico") || u.contains("ionio") || u.contains("italia") || u.contains("italiano");
@@ -181,6 +182,7 @@ public class ChatFlowService {
                 args.put("freshness", "FRESH");
             args.put("source", "WILD_CAUGHT");
         }
+
         return args;
     }
 
