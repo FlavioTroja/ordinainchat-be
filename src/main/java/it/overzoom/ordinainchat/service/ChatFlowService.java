@@ -189,7 +189,7 @@ public class ChatFlowService {
                         ObjectNode args = om.createObjectNode();
                         args.set("items", arr);
                         args.put("note", "Ordine via Telegram");
-                        args.put("inSite", false); // o true se ritiro in sede
+                        args.put("inSite", true);
                         args.put("bookedSlot", items.get(0).deliveryDate().toString()); // semplificato
 
                         ObjectNode meta = om.createObjectNode();
