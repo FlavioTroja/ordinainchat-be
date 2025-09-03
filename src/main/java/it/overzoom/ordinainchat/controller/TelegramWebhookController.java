@@ -17,6 +17,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import it.overzoom.ordinainchat.model.Conversation;
 import it.overzoom.ordinainchat.model.Message;
 import it.overzoom.ordinainchat.model.User;
@@ -101,23 +106,23 @@ public class TelegramWebhookController {
 
         String finalOut = rispostaFinale;
         try {
-            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-            com.fasterxml.jackson.databind.JsonNode bridge = om.readTree(rispostaFinale);
+            ObjectMapper om = new ObjectMapper();
+            JsonNode bridge = om.readTree(rispostaFinale);
             if (bridge.hasNonNull("bridge_type") && "tool_result".equals(bridge.get("bridge_type").asText())) {
                 String tool = bridge.path("tool").asText("");
-                com.fasterxml.jackson.databind.JsonNode args = bridge.path("arguments");
-                com.fasterxml.jackson.databind.JsonNode result = bridge.path("result");
+                JsonNode args = bridge.path("arguments");
+                JsonNode result = bridge.path("result");
 
                 // 🔁 items corretti: result.data.items
-                com.fasterxml.jackson.databind.JsonNode data = result.path("data");
-                com.fasterxml.jackson.databind.node.ArrayNode items = (com.fasterxml.jackson.databind.node.ArrayNode) data
+                JsonNode data = result.path("data");
+                ArrayNode items = (ArrayNode) data
                         .path("items");
 
                 // Compact payload per il secondo giro
-                com.fasterxml.jackson.databind.node.ArrayNode compact = om.createArrayNode();
+                ArrayNode compact = om.createArrayNode();
                 if (items != null) {
-                    for (com.fasterxml.jackson.databind.JsonNode it : items) {
-                        com.fasterxml.jackson.databind.node.ObjectNode n = om.createObjectNode();
+                    for (JsonNode it : items) {
+                        ObjectNode n = om.createObjectNode();
                         n.put("id", it.path("id").asLong());
                         n.put("name", it.path("name").asText(""));
                         if (it.hasNonNull("priceEur"))
@@ -131,7 +136,7 @@ public class TelegramWebhookController {
                         compact.add(n);
                     }
                 }
-                com.fasterxml.jackson.databind.node.ObjectNode toolNode = om.createObjectNode();
+                ObjectNode toolNode = om.createObjectNode();
                 toolNode.put("tool", tool);
                 toolNode.set("arguments", args);
                 toolNode.set("items", compact);

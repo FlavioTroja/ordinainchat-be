@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import it.overzoom.ordinainchat.model.Message;
@@ -25,14 +26,16 @@ public class ChatFlowService {
     private final ProductService products;
     private final OrderService orders;
     private final McpClient mcp;
+    private final CartService cartService;
 
     public ChatFlowService(IntentService intents, RenderService render, ProductService products, OrderService orders,
-            McpClient mcp) {
+            McpClient mcp, CartService cartService) {
         this.intents = intents;
         this.render = render;
         this.products = products;
         this.orders = orders;
         this.mcp = mcp;
+        this.cartService = cartService;
     }
 
     public String handle(String text, String raw, String chatId, String telegramUserId,
@@ -85,20 +88,34 @@ public class ChatFlowService {
                         return bridge.toString();
                     }
                     case "orders_create" -> {
-                        ObjectNode rawArgs = (ObjectNode) modelArgs;
-                        ObjectNode safeArgs = orders.sanitizeOrdersCreateArgs(rawArgs, telegramUserId, /*
-                                                                                                        * candidateFromCtx
-                                                                                                        */ null);
-                        if (!safeArgs.path("items").isArray() || safeArgs.path("items").size() == 0)
-                            return "Ok. Per quale articolo e quanti kg?";
-                        ObjectNode meta = om.createObjectNode().put("telegramUserId", telegramUserId);
-                        ObjectNode payload = om.createObjectNode();
-                        payload.put("tool", "orders_create");
-                        payload.set("arguments", safeArgs);
-                        payload.set("meta", meta);
+                        // intercetto e trasformo in cart_add
+                        ObjectNode ocArgs = orders.sanitizeOrdersCreateArgs((ObjectNode) modelArgs, telegramUserId,
+                                null);
 
-                        String body = mcp.call(payload);
-                        return orders.renderOrderConfirmation(body, safeArgs, telegramUserId);
+                        // mappa → args per cart_add (normalizzando quantity)
+                        ObjectNode cartArgs = om.createObjectNode();
+                        ArrayNode arr = om.createArrayNode();
+                        for (JsonNode it : ocArgs.withArray("items")) {
+                            ObjectNode n = om.createObjectNode();
+                            n.put("productId", it.path("productId").asLong());
+                            // prendi quantityKg se presente, altrimenti quantity
+                            double q = it.hasNonNull("quantityKg") ? it.get("quantityKg").asDouble()
+                                    : it.path("quantity").asDouble(0d);
+                            n.put("quantity", q);
+                            if (it.hasNonNull("deliveryDate"))
+                                n.put("deliveryDate", it.get("deliveryDate").asText());
+                            arr.add(n);
+                        }
+                        cartArgs.set("items", arr);
+
+                        // sanitizza secondo regole del carrello (gestisce default deliveryDate)
+                        ObjectNode safeArgs = cartService.sanitizeCartAddArgs(cartArgs, telegramUserId);
+
+                        if (safeArgs.path("items").isArray() && safeArgs.path("items").size() > 0) {
+                            cartService.addItemsToCart(safeArgs, telegramUserId);
+                            return "Ho aggiunto gli articoli al carrello. Vuoi confermare l’ordine?";
+                        }
+                        return "Ok. Per quale articolo e quanti kg?";
                     }
                     case "products_byid", "product_by_id" -> {
                         ObjectNode payload = om.createObjectNode();
@@ -125,6 +142,71 @@ public class ChatFlowService {
                         payload.set("meta", metaNode);
                         String body = mcp.call(payload);
                         return render.customerProfile(body);
+                    }
+                    case "cart_add" -> {
+                        ObjectNode rawArgs = (ObjectNode) modelArgs;
+                        ObjectNode safeArgs = cartService.sanitizeCartAddArgs(rawArgs, telegramUserId);
+                        if (!safeArgs.path("items").isArray() || safeArgs.path("items").size() == 0)
+                            return "Ok. Quali articoli vuoi aggiungere al carrello?";
+                        cartService.addItemsToCart(safeArgs, telegramUserId);
+                        return "Articoli aggiunti al carrello.";
+                    }
+                    case "cart_view" -> {
+                        List<CartService.CartItem> items = cartService.getItems(telegramUserId);
+                        if (items.isEmpty()) {
+                            return "Il carrello è vuoto.";
+                        } else {
+                            StringBuilder sb = new StringBuilder("Nel carrello hai:\n");
+                            for (CartService.CartItem it : items) {
+                                String prodName = products.resolveName(it.productId(), telegramUserId);
+                                sb.append("- ").append(it.qty()).append(" kg di ")
+                                        .append((prodName != null) ? prodName : ("prodotto #" + it.productId()))
+                                        .append(" (consegna il ").append(it.deliveryDate()).append(")\n");
+                            }
+                            return sb.toString();
+                        }
+                    }
+                    case "cart_clear" -> {
+                        cartService.clear(telegramUserId);
+                        return "Il carrello è stato svuotato.";
+                    }
+                    case "cart_checkout" -> {
+                        List<CartService.CartItem> items = cartService.getItems(telegramUserId);
+                        if (items.isEmpty()) {
+                            return "Il carrello è vuoto, non posso creare l’ordine.";
+                        }
+
+                        // Costruisci l'arguments per orders_create
+                        ArrayNode arr = om.createArrayNode();
+                        for (CartService.CartItem it : items) {
+                            ObjectNode n = om.createObjectNode();
+                            n.put("productId", it.productId());
+                            n.put("quantityKg", it.qty()); // payload per orderService
+                            n.put("deliveryDate", it.deliveryDate().toString());
+                            arr.add(n);
+                        }
+
+                        ObjectNode args = om.createObjectNode();
+                        args.set("items", arr);
+                        args.put("note", "Ordine via Telegram");
+                        args.put("inSite", false); // o true se ritiro in sede
+                        args.put("bookedSlot", items.get(0).deliveryDate().toString()); // semplificato
+
+                        ObjectNode meta = om.createObjectNode();
+                        meta.put("telegramUserId", telegramUserId);
+
+                        ObjectNode payload = om.createObjectNode();
+                        payload.put("tool", "orders_create");
+                        payload.set("arguments", args);
+                        payload.set("meta", meta);
+
+                        // Chiama MCP server
+                        String body = mcp.call(payload);
+
+                        // Pulisci carrello
+                        cartService.clear(telegramUserId);
+
+                        return orders.renderOrderConfirmation(body, args, telegramUserId);
                     }
                     default -> {
                         return (raw != null && !raw.isBlank()) ? raw
