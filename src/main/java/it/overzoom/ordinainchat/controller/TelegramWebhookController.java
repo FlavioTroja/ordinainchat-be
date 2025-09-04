@@ -127,6 +127,8 @@ public class TelegramWebhookController {
                         n.put("name", it.path("name").asText(""));
                         if (it.hasNonNull("priceEur"))
                             n.put("priceEur", it.get("priceEur").asText());
+                        if (it.hasNonNull("priceKg"))
+                            n.put("priceKg", it.get("priceKg").asText());
                         if (it.hasNonNull("freshness"))
                             n.put("freshness", it.get("freshness").asText());
                         if (it.hasNonNull("catchDate"))

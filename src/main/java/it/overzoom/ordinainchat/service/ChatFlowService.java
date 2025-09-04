@@ -85,7 +85,9 @@ public class ChatFlowService {
                         bridge.put("tool", "products_search");
                         bridge.set("arguments", args);
                         bridge.set("result", om.readTree(body));
-                        return bridge.toString();
+                        String bridgeJson = bridge.toString();
+                        log.info("Bridge JSON: {}", bridgeJson);
+                        return bridgeJson;
                     }
                     case "orders_create" -> {
                         // intercetto e trasformo in cart_add
@@ -131,7 +133,8 @@ public class ChatFlowService {
                             products.cacheIdNameMap(products.parseIdNameMap(body));
                         } catch (Exception ignored) {
                         }
-                        return render.productDetail(body);
+                        String detail = render.productDetail(body);
+                        return detail;
                     }
                     case "customers_me" -> {
                         ObjectNode payload = om.createObjectNode();
@@ -149,7 +152,7 @@ public class ChatFlowService {
                         if (!safeArgs.path("items").isArray() || safeArgs.path("items").size() == 0)
                             return "Ok. Quali articoli vuoi aggiungere al carrello?";
                         cartService.addItemsToCart(safeArgs, telegramUserId);
-                        return "Articoli aggiunti al carrello.";
+                        return "Perfetto. Ti serve qualcos'altro?";
                     }
                     case "cart_view" -> {
                         List<CartService.CartItem> items = cartService.getItems(telegramUserId);
@@ -159,7 +162,8 @@ public class ChatFlowService {
                             StringBuilder sb = new StringBuilder("Nel carrello hai:\n");
                             for (CartService.CartItem it : items) {
                                 String prodName = products.resolveName(it.productId(), telegramUserId);
-                                sb.append("- ").append(it.qty()).append(" kg di ")
+                                String unit = (it.priceKg() != null) ? "kg" : "pz";
+                                sb.append("- ").append(it.quantity()).append(" ").append(unit).append(" di ")
                                         .append((prodName != null) ? prodName : ("prodotto #" + it.productId()))
                                         .append(" (consegna il ").append(it.deliveryDate()).append(")\n");
                             }
@@ -181,7 +185,7 @@ public class ChatFlowService {
                         for (CartService.CartItem it : items) {
                             ObjectNode n = om.createObjectNode();
                             n.put("productId", it.productId());
-                            n.put("quantityKg", it.qty()); // payload per orderService
+                            n.put("quantity", it.quantity());
                             n.put("deliveryDate", it.deliveryDate().toString());
                             arr.add(n);
                         }

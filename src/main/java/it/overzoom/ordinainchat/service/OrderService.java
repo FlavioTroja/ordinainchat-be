@@ -34,7 +34,7 @@ public class OrderService {
             items = om.createArrayNode().add(modelArgs);
 
         for (JsonNode it : items) {
-            BigDecimal qty = parseQty(it.path("quantityKg").asText(null));
+            BigDecimal qty = parseQty(it.path("quantity").asText(null));
             if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0)
                 continue;
 
@@ -90,7 +90,13 @@ public class OrderService {
 
             ObjectNode clean = om.createObjectNode();
             clean.put("productId", pid);
-            clean.put("quantityKg", qty);
+            clean.put("quantity", qty);
+            if (it.hasNonNull("priceKg"))
+                clean.put("priceKg", it.get("priceKg").decimalValue());
+            if (it.hasNonNull("pricePiece"))
+                clean.put("pricePiece", it.get("pricePiece").decimalValue());
+            if (it.hasNonNull("priceEur"))
+                clean.put("priceEur", it.get("priceEur").decimalValue());
             cleanItems.add(clean);
         }
         out.set("items", cleanItems);
@@ -130,7 +136,7 @@ public class OrderService {
             if (items.isArray()) {
                 for (JsonNode it : items) {
                     long pid = it.path("productId").asLong(0L);
-                    String qty = it.path("quantityKg").asText("").replace('.', ',');
+                    String qty = it.path("quantity").asText("").replace('.', ',');
                     String name = namesFromOrder.get(pid);
                     if (isBlank(name))
                         name = products.resolveName(pid, telegramUserId);
@@ -138,7 +144,9 @@ public class OrderService {
                         name = "articolo";
                     if (itemsTxt.length() > 0)
                         itemsTxt.append(", ");
-                    itemsTxt.append(qty).append(" kg di ").append(TextUtils.capitalizeWords(name));
+                    String unit = it.hasNonNull("priceKg") ? "kg" : "pz";
+                    itemsTxt.append(qty).append(" ").append(unit).append(" di ")
+                            .append(TextUtils.capitalizeWords(name));
                 }
             }
             String base = "Ordine registrato: " + (itemsTxt.length() == 0 ? "articoli" : itemsTxt) + ".";
