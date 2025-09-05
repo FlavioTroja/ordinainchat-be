@@ -84,6 +84,26 @@ public class ProductService {
         return cached;
     }
 
+    public JsonNode getById(long productId, String telegramUserId) {
+        try {
+            ObjectNode args = om.createObjectNode().put("id", productId);
+            ObjectNode payload = om.createObjectNode();
+            payload.put("tool", "products_byid");
+            payload.set("arguments", args);
+            ObjectNode meta = om.createObjectNode();
+            if (telegramUserId != null && !telegramUserId.isBlank())
+                meta.put("telegramUserId", telegramUserId);
+            payload.set("meta", meta);
+
+            String body = mcp.call(payload);
+            JsonNode root = om.readTree(body == null ? "{}" : body);
+            JsonNode data = root.path("data");
+            return data.isMissingNode() ? root : data;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     public JsonNode pickBestMatch(JsonNode items, String desiredName) {
         double bestScore = -1.0;
         JsonNode best = null;

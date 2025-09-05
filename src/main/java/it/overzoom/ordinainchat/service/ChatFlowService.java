@@ -89,6 +89,21 @@ public class ChatFlowService {
                         log.info("Bridge JSON: {}", bridgeJson);
                         return bridgeJson;
                     }
+                    case "ask_quantity" -> {
+                        long productId = modelArgs.path("productId").asLong();
+                        JsonNode p = products.getById(productId, telegramUserId);
+
+                        if (p != null) {
+                            String name = JsonUtils.safeTxt(p, "name");
+                            if (p.hasNonNull("pricePiece")
+                                    && (p.path("priceKg").isMissingNode() || p.path("priceKg").isNull())) {
+                                return "Quanti pezzi di " + name + " desideri ordinare?";
+                            } else {
+                                return "Quanti kg di " + name + " desideri ordinare?";
+                            }
+                        }
+                        return "Per questo prodotto vuoi indicare i kg o i pezzi?";
+                    }
                     case "orders_create" -> {
                         // intercetto e trasformo in cart_add
                         ObjectNode ocArgs = orders.sanitizeOrdersCreateArgs((ObjectNode) modelArgs, telegramUserId,
